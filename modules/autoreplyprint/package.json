@@ -1,0 +1,7 @@
+{
+  "name": "autoreplyprint",
+  "version": "1.0.0",
+  "description": "AutoReplyPrint Android Native SDK Module for Apka Bill POS",
+  "main": "index.ts",
+  "types": "index.ts"
+}

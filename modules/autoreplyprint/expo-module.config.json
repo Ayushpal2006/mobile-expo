@@ -1,0 +1,8 @@
+{
+  "name": "autoreplyprint",
+  "platforms": ["android"],
+  "android": {
+    "package": "com.apkabill.autoreplyprint",
+    "modules": ["com.apkabill.autoreplyprint.AutoReplyPrintModule"]
+  }
+}
