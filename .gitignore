@@ -39,3 +39,34 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Dependencies
+node_modules/
+
+# Expo / build output
+.expo/
+dist/
+
+# Android generated build files
+android/.gradle/
+android/.cxx/
+android/app/build/
+android/app/.cxx/
+
+# Native module generated build files
+modules/autoreplyprint/android/build/
+
+# iOS generated dependencies
+ios/Pods/
+
+# Generated APK / binaries
+*.apk
+
+# Logs
+*.log
+
+# Local broken git backup
+.git-broken/
+
+# macOS
+.DS_Store
