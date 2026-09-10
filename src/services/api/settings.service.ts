@@ -5,6 +5,7 @@
 import { SettingsRepository } from '../../database/repositories/settings.repository';
 import { OutboxRepository } from '../../database/repositories/outbox.repository';
 import { apiClient } from './client';
+import { SyncEngine } from './sync.service';
 import { StoreSettings } from '../../types';
 import logger from '../../utils/logger';
 
@@ -18,7 +19,7 @@ export const SettingsService = {
       const res = await apiClient.get<any>('/api/settings');
       const serverSettings = res.data?.data || res.data;
       if (serverSettings && typeof serverSettings === 'object') {
-        await SettingsRepository.saveAllSettings(serverSettings, storeId);
+        await SettingsRepository.saveAllSettings(serverSettings, storeId, false);
         return await SettingsRepository.getAllSettings(storeId);
       }
     } catch (err: any) {
@@ -29,27 +30,11 @@ export const SettingsService = {
   },
 
   async updateSettings(settings: Partial<StoreSettings>, storeId: number = 1): Promise<StoreSettings> {
-    // 1. Commit locally first
-    await SettingsRepository.saveAllSettings(settings, storeId);
+    // 1. Commit locally and enqueue outbox event
+    await SettingsRepository.saveAllSettings(settings, storeId, true);
 
-    // 2. Record outbox event for sync resilience
-    const mutationId = `MUT-SETTINGS-${Date.now()}`;
-    const outboxId = await OutboxRepository.insertEvent({
-      entity_type: 'settings',
-      entity_id: String(storeId),
-      operation: 'UPDATE',
-      payload: JSON.stringify(settings),
-      store_id: storeId,
-    });
-
-    // 3. Attempt immediate optimistic upload if online
-    try {
-      await apiClient.put('/api/settings', settings);
-      await OutboxRepository.markStatus(outboxId, 'SYNCED');
-      logger.info('[SettingsService] Settings uploaded to server successfully.');
-    } catch (err: any) {
-      logger.info('[SettingsService] Online settings push deferred to outbox worker:', err.message);
-    }
+    // 2. Attempt immediate background sync
+    SyncEngine.syncNow(storeId).catch(() => {});
 
     return SettingsRepository.getAllSettings(storeId);
   },

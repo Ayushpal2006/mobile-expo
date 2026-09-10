@@ -159,7 +159,7 @@ export class ReceiptFormatter {
   /**
    * Generates standard binary ESC/POS byte sequence for thermal printers
    */
-  static generateEscPosCommands(data: ReceiptPrintData, paperWidth: '58mm' | '80mm' = '58mm'): Uint8Array {
+  static generateEscPosCommands(data: ReceiptPrintData, paperWidth: '58mm' | '80mm' = '58mm', autoCut: boolean = false): Uint8Array {
     const bytes: number[] = [];
 
     // Helper pushers
@@ -218,8 +218,13 @@ export class ReceiptFormatter {
       push(0x1b, 0x61, 0x00);
     }
 
-    // 4. Clean paper feed (3 lines feed)
-    push(0x1b, 0x64, 0x03);
+    // 4. Clean paper feed (5 lines feed)
+    push(0x1b, 0x64, 0x05);
+
+    // 5. Auto-cut paper (GS V 66 0 -> ESC/POS standard partial cut)
+    if (autoCut) {
+      push(0x1d, 0x56, 0x42, 0x00);
+    }
 
     return new Uint8Array(bytes);
   }

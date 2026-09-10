@@ -4,6 +4,7 @@
  * Features:
  * - Safe-area aware header with Official Canonical Logo
  * - Real-Time Sync Indicator & Interactive Sync Details Modal
+ * - Live Activity Stream, Accurate Progress Bar, and ETA
  * - Multi-Store context & quick cashier actions
  */
 
@@ -17,12 +18,14 @@ import {
   Image,
   StatusBar,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import useNetworkStatus from '../../hooks/useNetworkStatus';
 import useSyncStatus from '../../hooks/useSyncStatus';
 import { SPACING, COLORS, Button, RADIUS, SHADOWS } from './UIComponents';
+import { CONFIG } from '../../config/env';
 
 interface HeaderProps {
   onOpenDrawer?: () => void;
@@ -62,6 +65,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenDrawer }) => {
 
   // Render Real-Time Sync Status Badge
   const renderSyncBadge = () => {
+    const pending = syncProgress.remaining !== undefined ? syncProgress.remaining : syncProgress.totalPending;
+    const failed = syncProgress.failed !== undefined ? syncProgress.failed : syncProgress.failedCount;
+
     if (!isConnected || !syncProgress.isOnline) {
       return (
         <TouchableOpacity
@@ -70,44 +76,47 @@ export const Header: React.FC<HeaderProps> = ({ onOpenDrawer }) => {
           activeOpacity={0.7}
         >
           <Text style={styles.badgeText}>
-            📡 Offline {syncProgress.totalPending > 0 ? `(${syncProgress.totalPending})` : ''}
+            📡 Offline{pending > 0 ? ` • ${pending} pending` : ''}
           </Text>
         </TouchableOpacity>
       );
     }
 
     if (syncProgress.status === 'syncing') {
+      const processed = syncProgress.processed || syncProgress.succeeded || 1;
+      const total = syncProgress.initialPending || syncProgress.totalToSync || 1;
+      const pct = syncProgress.progress || syncProgress.currentProgress || 0;
       return (
         <TouchableOpacity
           style={[styles.badgeBtn, { backgroundColor: '#2563EB' }]}
           onPress={() => setSyncModalVisible(true)}
           activeOpacity={0.7}
         >
-          <Text style={styles.badgeText}>⚡ {syncProgress.currentProgress}%</Text>
+          <Text style={styles.badgeText}>⚡ Syncing {processed}/{total} • {pct}%</Text>
         </TouchableOpacity>
       );
     }
 
-    if (syncProgress.failedCount > 0 || syncProgress.status === 'error') {
+    if (failed > 0 || syncProgress.status === 'error') {
       return (
         <TouchableOpacity
           style={[styles.badgeBtn, { backgroundColor: '#DC2626' }]}
           onPress={() => setSyncModalVisible(true)}
           activeOpacity={0.7}
         >
-          <Text style={styles.badgeText}>⚠️ Sync ({syncProgress.failedCount})</Text>
+          <Text style={styles.badgeText}>⚠️ {failed} failed • Retry</Text>
         </TouchableOpacity>
       );
     }
 
-    if (syncProgress.totalPending > 0) {
+    if (pending > 0) {
       return (
         <TouchableOpacity
           style={[styles.badgeBtn, { backgroundColor: '#D97706' }]}
           onPress={() => setSyncModalVisible(true)}
           activeOpacity={0.7}
         >
-          <Text style={styles.badgeText}>⚡ Sync ({syncProgress.totalPending})</Text>
+          <Text style={styles.badgeText}>⚡ {pending} pending</Text>
         </TouchableOpacity>
       );
     }
@@ -118,7 +127,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenDrawer }) => {
         onPress={() => setSyncModalVisible(true)}
         activeOpacity={0.7}
       >
-        <Text style={styles.badgeText}>✓ Synced</Text>
+        <Text style={styles.badgeText}>✓ All synced</Text>
       </TouchableOpacity>
     );
   };
@@ -164,79 +173,117 @@ export const Header: React.FC<HeaderProps> = ({ onOpenDrawer }) => {
       <Modal visible={syncModalVisible} animationType="fade" transparent onRequestClose={() => setSyncModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm }}>
-              <Text style={styles.modalTitle}>Data Synchronization Health</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.xs }}>
+              <Text style={styles.modalTitle}>Synchronization Health</Text>
               <TouchableOpacity onPress={() => setSyncModalVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Text style={{ fontSize: 18, color: COLORS.textMuted, fontWeight: '700' }}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Status Summary Banner */}
-            <View style={[
-              styles.statusBanner,
-              !isConnected ? { backgroundColor: '#F1F5F9', borderColor: '#CBD5E1' } :
-              syncProgress.status === 'syncing' ? { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' } :
-              syncProgress.failedCount > 0 ? { backgroundColor: '#FEF2F2', borderColor: '#FECACA' } :
-              syncProgress.totalPending > 0 ? { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' } :
-              { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }
-            ]}>
-              <Text style={[
-                styles.statusBannerTitle,
-                !isConnected ? { color: '#475569' } :
-                syncProgress.status === 'syncing' ? { color: '#2563EB' } :
-                syncProgress.failedCount > 0 ? { color: '#DC2626' } :
-                syncProgress.totalPending > 0 ? { color: '#D97706' } :
-                { color: '#059669' }
+            <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+              {/* Status Summary Banner */}
+              <View style={[
+                styles.statusBanner,
+                !isConnected ? { backgroundColor: '#F1F5F9', borderColor: '#CBD5E1' } :
+                syncProgress.status === 'syncing' ? { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' } :
+                syncProgress.failedCount > 0 ? { backgroundColor: '#FEF2F2', borderColor: '#FECACA' } :
+                syncProgress.totalPending > 0 ? { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' } :
+                { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }
               ]}>
-                {!isConnected ? '📡 Device Offline' :
-                 syncProgress.status === 'syncing' ? `🔄 Syncing (${syncProgress.currentProgress}%)` :
-                 syncProgress.failedCount > 0 ? `⚠️ ${syncProgress.failedCount} Items Need Attention` :
-                 syncProgress.totalPending > 0 ? `⚡ ${syncProgress.totalPending} Changes Pending Sync` :
-                 '✓ All Data Synchronized'}
-              </Text>
-              <Text style={styles.statusBannerSub}>
-                {!isConnected ? 'Changes made offline are safely stored locally in SQLite and will sync automatically when back online.' :
-                 syncProgress.status === 'syncing' ? `Uploaded ${syncProgress.syncedCount} of ${syncProgress.totalToSync} queued events.` :
-                 syncProgress.failedCount > 0 ? 'Some records encountered errors during server upload. Tap Retry to resubmit.' :
-                 syncProgress.totalPending > 0 ? 'Offline sales or stock adjustments are waiting to be confirmed by the cloud.' :
-                 'All invoices, catalog items, and financial records are confirmed with cloud backend.'}
-              </Text>
-            </View>
+                <Text style={[
+                  styles.statusBannerTitle,
+                  !isConnected ? { color: '#475569' } :
+                  syncProgress.status === 'syncing' ? { color: '#2563EB' } :
+                  syncProgress.failedCount > 0 ? { color: '#DC2626' } :
+                  syncProgress.totalPending > 0 ? { color: '#D97706' } :
+                  { color: '#059669' }
+                ]}>
+                  {!isConnected ? '📡 Device Offline' :
+                   syncProgress.status === 'syncing' ? `🔄 Syncing (${syncProgress.syncedCount}/${syncProgress.totalToSync} records)` :
+                   syncProgress.failedCount > 0 ? `⚠️ ${syncProgress.failedCount} Items Need Attention` :
+                   syncProgress.totalPending > 0 ? `⚡ ${syncProgress.totalPending} Changes Pending Sync` :
+                   '✓ All Data Synchronized'}
+                </Text>
+                <Text style={styles.statusBannerSub}>
+                  {!isConnected ? 'Changes made offline are safely stored in local SQLite and will sync automatically when reconnected.' :
+                   syncProgress.status === 'syncing' ? (syncProgress.estimatedRemainingText ? `Processing queue... ${syncProgress.estimatedRemainingText}` : `Uploaded ${syncProgress.syncedCount} of ${syncProgress.totalToSync} queued events.`) :
+                   syncProgress.failedCount > 0 ? 'Some records encountered errors during server upload. Tap Retry below.' :
+                   syncProgress.totalPending > 0 ? 'Offline sales or inventory adjustments are queued for cloud upload.' :
+                   'All local sales, catalog updates, and transactions are confirmed with cloud backend.'}
+                </Text>
+              </View>
 
-            {/* Metrics Grid */}
-            <View style={styles.metricsGrid}>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Pending</Text>
-                <Text style={[styles.metricValue, syncProgress.totalPending > 0 && { color: '#D97706' }]}>
-                  {syncProgress.totalPending}
-                </Text>
-              </View>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Synced</Text>
-                <Text style={[styles.metricValue, { color: '#059669' }]}>
-                  {syncProgress.syncedCount}
-                </Text>
-              </View>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Failed</Text>
-                <Text style={[styles.metricValue, syncProgress.failedCount > 0 && { color: '#DC2626' }]}>
-                  {syncProgress.failedCount}
-                </Text>
-              </View>
-              <View style={styles.metricItem}>
-                <Text style={styles.metricLabel}>Progress</Text>
-                <Text style={styles.metricValue}>
-                  {syncProgress.currentProgress}%
-                </Text>
-              </View>
-            </View>
+              {/* Progress Bar (Visible during sync or pending) */}
+              {(syncProgress.status === 'syncing' || syncProgress.totalPending > 0) && (
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBarFill, { width: `${Math.max(5, syncProgress.currentProgress)}%` }]} />
+                </View>
+              )}
 
-            <Text style={styles.lastSyncText}>
-              Last Synchronized: {syncProgress.lastSyncedAt ? new Date(syncProgress.lastSyncedAt).toLocaleString('en-IN') : 'Just now'}
-            </Text>
+              {/* Metrics Grid */}
+              <View style={styles.metricsGrid}>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Pending</Text>
+                  <Text style={[styles.metricValue, syncProgress.totalPending > 0 && { color: '#D97706' }]}>
+                    {syncProgress.totalPending}
+                  </Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Synced</Text>
+                  <Text style={[styles.metricValue, { color: '#059669' }]}>
+                    {syncProgress.syncedCount}
+                  </Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Failed</Text>
+                  <Text style={[styles.metricValue, syncProgress.failedCount > 0 && { color: '#DC2626' }]}>
+                    {syncProgress.failedCount}
+                  </Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Progress</Text>
+                  <Text style={styles.metricValue}>
+                    {syncProgress.currentProgress}%
+                  </Text>
+                </View>
+              </View>
+
+              {/* Server Diagnostics & Target */}
+              <View style={styles.diagBox}>
+                <Text style={styles.diagText}>• Network: {isConnected ? '🟢 Online' : '🔴 Offline'}</Text>
+                <Text style={styles.diagText}>• Backend: {syncProgress.backendConnected ? '🟢 Connected' : '🔴 Unreachable'}</Text>
+                <Text style={styles.diagText} numberOfLines={1}>• Endpoint: {CONFIG.apiBaseUrl}</Text>
+                <Text style={styles.diagText}>• Last Synced: {syncProgress.lastSyncedAt ? new Date(syncProgress.lastSyncedAt).toLocaleTimeString('en-IN') : 'Just now'}</Text>
+              </View>
+
+              {/* Live Activity Stream */}
+              {syncProgress.activities && syncProgress.activities.length > 0 ? (
+                <View style={styles.activitySection}>
+                  <Text style={styles.activityHeader}>Recent Sync Activity</Text>
+                  {syncProgress.activities.slice(0, 5).map((act) => (
+                    <View key={act.id} style={styles.activityRow}>
+                      <Text style={styles.activityIcon}>
+                        {act.status === 'synced' ? '✓' : act.status === 'syncing' ? '⏳' : act.status === 'failed' ? '❌' : '○'}
+                      </Text>
+                      <Text style={styles.activityTitle} numberOfLines={1}>
+                        {act.title}
+                      </Text>
+                      <Text style={[
+                        styles.activityStatus,
+                        act.status === 'synced' ? { color: '#059669' } :
+                        act.status === 'failed' ? { color: '#DC2626' } :
+                        { color: '#2563EB' }
+                      ]}>
+                        {act.status.toUpperCase()}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </ScrollView>
 
             {/* Action Buttons */}
-            <View style={{ marginTop: SPACING.md, gap: 8 }}>
+            <View style={{ marginTop: SPACING.sm, gap: 6 }}>
               <Button
                 title={isSyncingManual || syncProgress.status === 'syncing' ? 'Syncing...' : '🔄 Sync Now'}
                 onPress={handleManualSync}
@@ -358,7 +405,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
     padding: SPACING.md,
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 440,
     ...SHADOWS.md,
   },
   modalTitle: {
@@ -367,10 +414,10 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   statusBanner: {
-    padding: 12,
+    padding: 10,
     borderRadius: RADIUS.md,
     borderWidth: 1,
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   statusBannerTitle: {
     fontSize: 13,
@@ -380,15 +427,26 @@ const styles = StyleSheet.create({
   statusBannerSub: {
     fontSize: 11,
     color: '#475569',
-    lineHeight: 16,
+    lineHeight: 15,
+  },
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#2563EB',
   },
   metricsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
     borderRadius: RADIUS.md,
-    padding: SPACING.sm,
-    marginVertical: SPACING.xs,
+    padding: 8,
+    marginVertical: 4,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -403,16 +461,55 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   metricValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
     color: '#0F172A',
-    marginTop: 2,
+    marginTop: 1,
   },
-  lastSyncText: {
+  diagBox: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: RADIUS.sm,
+    padding: 8,
+    marginTop: 4,
+  },
+  diagText: {
     fontSize: 11,
+    color: '#475569',
+    marginVertical: 1,
+  },
+  activitySection: {
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingTop: 6,
+  },
+  activityHeader: {
+    fontSize: 11,
+    fontWeight: '700',
     color: '#64748B',
-    textAlign: 'center',
-    marginTop: 6,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  activityIcon: {
+    fontSize: 11,
+    marginRight: 6,
+  },
+  activityTitle: {
+    fontSize: 11,
+    color: '#0F172A',
+    flex: 1,
+    fontWeight: '600',
+  },
+  activityStatus: {
+    fontSize: 10,
+    fontWeight: '700',
+    marginLeft: 6,
   },
 });
 

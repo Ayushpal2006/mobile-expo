@@ -4,6 +4,7 @@
 
 import { ProductRepository } from '../../database/repositories/product.repository';
 import { apiClient } from './client';
+import { SyncEngine } from './sync.service';
 import { Product } from '../../types';
 import logger from '../../utils/logger';
 
@@ -20,8 +21,9 @@ export const ProductService = {
 
     // Fallback to API if local DB is empty
     try {
-      const response = await apiClient.get<Product[]>('/api/products');
-      const list = Array.isArray(response.data) ? response.data : [];
+      const response = await apiClient.get<any>('/api/products');
+      const rawList = response.data?.data || response.data?.products || response.data || [];
+      const list = Array.isArray(rawList) ? rawList : [];
       if (list.length > 0) {
         await ProductRepository.insertBatch(list, storeId);
         return await ProductRepository.getAll(storeId);
@@ -38,27 +40,24 @@ export const ProductService = {
 
   async createProduct(product: Partial<Product>, storeId: number = 1): Promise<Product> {
     const savedLocal = await ProductRepository.upsert(product, storeId);
-    try {
-      const response = await apiClient.post<Product>('/api/products', { ...product, store_id: storeId });
-      if (response.data && response.data.id) {
-        await ProductRepository.upsert({ ...savedLocal, server_id: response.data.id, sync_status: 'synced' }, storeId);
-      }
-    } catch (err: any) {
-      logger.warn('[ProductService] Network product creation failed, saved locally as PENDING:', err.message);
-    }
+    SyncEngine.syncNow(storeId).catch(() => {});
     return savedLocal;
   },
 
   async updateProduct(product: Partial<Product>, storeId: number = 1): Promise<Product> {
-    return ProductRepository.upsert(product, storeId);
+    const updated = await ProductRepository.upsert(product, storeId);
+    SyncEngine.syncNow(storeId).catch(() => {});
+    return updated;
   },
 
   async archiveProduct(id: number, storeId: number = 1): Promise<void> {
     await ProductRepository.archiveProduct(id, storeId);
+    SyncEngine.syncNow(storeId).catch(() => {});
   },
 
   async restoreProduct(id: number, storeId: number = 1): Promise<void> {
     await ProductRepository.restoreProduct(id, storeId);
+    SyncEngine.syncNow(storeId).catch(() => {});
   },
 
   async uploadProductImage(productId: number, imageUri: string, storeId: number = 1): Promise<string> {

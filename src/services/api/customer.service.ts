@@ -4,6 +4,7 @@
 
 import { CustomerRepository } from '../../database/repositories/customer.repository';
 import { apiClient } from './client';
+import { SyncEngine } from './sync.service';
 import { Customer, SaleInvoice } from '../../types';
 import logger from '../../utils/logger';
 
@@ -19,11 +20,17 @@ export const CustomerService = {
     }
 
     try {
-      const response = await apiClient.get<Customer[]>('/api/customers');
-      const list = Array.isArray(response.data) ? response.data : [];
+      const response = await apiClient.get<any>('/api/customers');
+      const rawList = response.data?.data || response.data?.customers || response.data || [];
+      const list = Array.isArray(rawList) ? rawList : [];
       if (list.length > 0) {
         for (const c of list) {
-          await CustomerRepository.upsert(c, storeId);
+          if (!c || typeof c !== 'object') continue;
+          try {
+            await CustomerRepository.upsert(c, storeId);
+          } catch (upsertErr: any) {
+            logger.warn('[CustomerService] Skipping invalid customer record:', upsertErr.message);
+          }
         }
         return await CustomerRepository.getAll(storeId);
       }
@@ -35,23 +42,22 @@ export const CustomerService = {
 
   async createCustomer(customer: Partial<Customer>, storeId: number = 1): Promise<Customer> {
     const savedLocal = await CustomerRepository.upsert(customer, storeId);
-    try {
-      const response = await apiClient.post<Customer>('/api/customers', { ...customer, store_id: storeId });
-      if (response.data && response.data.id) {
-        await CustomerRepository.upsert({ ...savedLocal, server_id: response.data.id, sync_status: 'synced' }, storeId);
-      }
-    } catch (err: any) {
-      logger.warn('[CustomerService] Network customer creation failed, saved locally:', err.message);
-    }
+    SyncEngine.syncNow(storeId).catch(() => {});
     return savedLocal;
   },
 
-  async getCustomerInvoices(customerId: number): Promise<SaleInvoice[]> {
+  async getCustomerInvoices(customerId: number, storeId: number = 1): Promise<SaleInvoice[]> {
+    const local = await CustomerRepository.getCustomerPurchaseHistory(customerId, storeId);
+    if (local.length > 0) {
+      return local;
+    }
+
     try {
-      const response = await apiClient.get<SaleInvoice[]>(`/api/customers/${customerId}/invoices`);
-      return Array.isArray(response.data) ? response.data : [];
+      const response = await apiClient.get<any>(`/api/customers/${customerId}/invoices`);
+      const raw = response.data?.data || response.data?.invoices || response.data || [];
+      return Array.isArray(raw) ? raw : [];
     } catch {
-      return [];
+      return local;
     }
   },
 };

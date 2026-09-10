@@ -8,6 +8,8 @@ import { PrinterRepository } from '../../database/repositories/printer.repositor
 import { PrinterService } from '../../native/services/PrinterService';
 import { CheckoutPayload, SaleInvoice, StoreSettings } from '../../types';
 import { ReceiptPrintData } from '../../native/types';
+import { apiClient, extractApiPayload } from './client';
+import { SyncEngine } from './sync.service';
 import logger from '../../utils/logger';
 import { inr } from '../../utils/format';
 
@@ -15,8 +17,9 @@ export const SalesService = {
   /**
    * Complete Offline Sale Creation:
    * 1. Atomically inserts sale, line items, stock deduction, and outbox event into SQLite.
-   * 2. Automatically prints receipt to default printer profile if configured.
-   * 3. Returns sale invoice immediately.
+   * 2. Triggers immediate background sync to server.
+   * 3. Automatically prints receipt to default printer profile if configured.
+   * 4. Returns sale invoice immediately.
    */
   async processCheckout(payload: CheckoutPayload, storeId: number = 1): Promise<SaleInvoice> {
     const effectiveStoreId = payload.storeId || storeId || 1;
@@ -24,6 +27,11 @@ export const SalesService = {
     // 1. Perform atomic SQLite transaction
     const invoice = await SaleRepository.createSaleTransaction(payload, effectiveStoreId);
     logger.info(`[SalesService] Transaction completed offline: ${invoice.invoice_number}`);
+
+    // 2. Trigger immediate background sync
+    SyncEngine.syncNow(effectiveStoreId).catch((err) => {
+      logger.warn('[SalesService] Background sync trigger warning:', err.message);
+    });
 
     // 2. Trigger automatic receipt printing to configured default printer
     try {
@@ -85,12 +93,30 @@ export const SalesService = {
     const voided = await SaleRepository.voidSaleTransaction(saleIdOrInvoice, reason, voidedBy, storeId);
     if (voided) {
       logger.info(`[SalesService] Sale voided successfully: ${voided.invoice_number}`);
+      SyncEngine.syncNow(storeId).catch(() => {});
     }
     return voided;
   },
 
   async getTodaySales(storeId: number = 1): Promise<SaleInvoice[]> {
-    return SaleRepository.getAllSales(storeId, 100);
+    const local = await SaleRepository.getAllSales(storeId, 100);
+    if (local.length > 0) {
+      return local;
+    }
+
+    try {
+      const res = await apiClient.get<any>('/api/sales');
+      const payload = extractApiPayload(res);
+      const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.sales) ? payload.sales : []);
+      if (list.length > 0) {
+        await SaleRepository.insertServerSalesBatch(list, storeId);
+        return await SaleRepository.getAllSales(storeId, 100);
+      }
+    } catch {
+      // fallback
+    }
+
+    return local;
   },
 
   async getSaleById(idOrInvoice: string, storeId: number = 1): Promise<SaleInvoice | null> {

@@ -141,6 +141,70 @@ export const StockAdjustmentRepository = {
     const row = await db.getFirstAsync<DBStockAdjustment>('SELECT * FROM stock_adjustments WHERE id = ? AND store_id = ?;', insertedId, storeId);
     return StockAdjustmentRepository.mapToDomain(row!);
   },
+
+  async insertBatch(adjustmentsList: any[], storeId: number = 1): Promise<void> {
+    const db = await getDatabaseAsync();
+    const now = new Date().toISOString();
+
+    await db.withTransactionAsync(async () => {
+      for (const a of adjustmentsList) {
+        if (!a || typeof a !== 'object') continue;
+        const serverId = a.id || null;
+        const prodName = a.product_name || a.productName || 'Product';
+        const type = a.adjustment_type || a.type || 'SET';
+        const qty = Number(a.quantity || 0);
+        const prev = Number(a.previous_stock !== undefined ? a.previous_stock : (a.previousStock || 0));
+        const next = Number(a.new_stock !== undefined ? a.new_stock : (a.newStock || 0));
+        const reason = a.reason || 'OTHER';
+        const notes = a.notes || null;
+        const by = a.adjusted_by || a.adjustedBy || 'Admin';
+
+        const existing = serverId
+          ? await db.getFirstAsync<DBStockAdjustment>(
+              'SELECT id FROM stock_adjustments WHERE server_id = ? AND store_id = ?;',
+              serverId,
+              storeId
+            )
+          : null;
+
+        if (existing) {
+          await db.runAsync(
+            `UPDATE stock_adjustments SET 
+              product_name = ?, adjustment_type = ?, quantity = ?, previous_stock = ?, new_stock = ?, reason = ?, notes = ?, adjusted_by = ?
+             WHERE id = ?;`,
+            prodName,
+            type,
+            qty,
+            prev,
+            next,
+            reason,
+            notes,
+            by,
+            existing.id
+          );
+        } else {
+          await db.runAsync(
+            `INSERT INTO stock_adjustments (
+              server_id, store_id, product_id, product_name, adjustment_type, quantity,
+              previous_stock, new_stock, reason, notes, adjusted_by, sync_status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?);`,
+            serverId,
+            storeId,
+            a.product_id || a.productId || null,
+            prodName,
+            type,
+            qty,
+            prev,
+            next,
+            reason,
+            notes,
+            by,
+            a.created_at || a.createdAt || now
+          );
+        }
+      }
+    });
+  },
 };
 
 export default StockAdjustmentRepository;

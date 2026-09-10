@@ -105,7 +105,7 @@ export const SettingsRepository = {
     return result;
   },
 
-  async saveAllSettings(settings: Partial<StoreSettings> | Record<string, any>, storeId: number = 1): Promise<void> {
+  async saveAllSettings(settings: Partial<StoreSettings> | Record<string, any>, storeId: number = 1, isLocalMutation: boolean = false): Promise<void> {
     const db = await getDatabaseAsync();
     const now = new Date().toISOString();
 
@@ -115,27 +115,35 @@ export const SettingsRepository = {
       }
     }
 
-    // Enqueue outbox event for settings synchronization
-    try {
-      await db.runAsync(
-        `INSERT INTO outbox (entity_type, entity_id, operation, payload, status, attempt_count, created_at, store_id)
-         VALUES ('settings', ?, 'UPDATE', ?, 'PENDING', 0, ?, ?);`,
-        String(storeId),
-        JSON.stringify({ storeId, ...settings }),
-        now,
-        storeId
-      );
-    } catch {
-      // safe fallback
+    // Only enqueue outbox event when saving local user edits, not server fetches
+    if (isLocalMutation) {
+      try {
+        await db.runAsync(
+          `UPDATE outbox SET status = 'SYNCED' WHERE entity_type = 'settings' AND store_id = ? AND status = 'PENDING';`,
+          storeId
+        );
+        await db.runAsync(
+          `INSERT INTO outbox (entity_type, entity_id, operation, payload, status, attempt_count, created_at, store_id)
+           VALUES ('settings', ?, 'UPDATE', ?, 'PENDING', 0, ?, ?);`,
+          String(storeId),
+          JSON.stringify({ storeId, ...settings }),
+          now,
+          storeId
+        );
+      } catch {
+        // safe fallback
+      }
     }
   },
 
-  async getLastSyncTime(domain: string, storeId: number = 1): Promise<string | null> {
-    return SettingsRepository.getSetting(`sync_checkpoint_${domain}`, storeId);
+  async getLastSyncTime(domain: string, storeId: number = 1, orgId?: number): Promise<string | null> {
+    const key = orgId ? `org_${orgId}_store_${storeId}_sync_checkpoint_${domain}` : `sync_checkpoint_${domain}`;
+    return SettingsRepository.getSetting(key, storeId);
   },
 
-  async setLastSyncTime(domain: string, isoTimestamp: string, storeId: number = 1): Promise<void> {
-    await SettingsRepository.setSetting(`sync_checkpoint_${domain}`, isoTimestamp, storeId);
+  async setLastSyncTime(domain: string, isoTimestamp: string, storeId: number = 1, orgId?: number): Promise<void> {
+    const key = orgId ? `org_${orgId}_store_${storeId}_sync_checkpoint_${domain}` : `sync_checkpoint_${domain}`;
+    await SettingsRepository.setSetting(key, isoTimestamp, storeId);
   },
 };
 

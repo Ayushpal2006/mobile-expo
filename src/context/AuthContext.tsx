@@ -68,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setIsAuthenticated(true);
       if (activeStore?.id) {
-        SyncEngine.initialSync(activeStore.id).catch(() => {});
+        SyncEngine.initialSync(activeStore.id, meData.organization?.id).catch(() => {});
       }
     } catch (err: any) {
       console.warn('[AuthProvider] Session refresh failed, logging out:', err.message);
@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setIsAuthenticated(true);
       if (activeStore?.id) {
-        SyncEngine.initialSync(activeStore.id).catch(() => {});
+        SyncEngine.initialSync(activeStore.id, session.organization?.id).catch(() => {});
       }
     } catch (err: any) {
       const msg = err.message || 'Login failed. Please check your credentials and server connection.';

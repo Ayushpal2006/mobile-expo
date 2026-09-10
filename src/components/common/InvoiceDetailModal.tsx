@@ -1,21 +1,12 @@
 /**
- * Apka Bill POS - Unified Transaction & Invoice Detail Modal
+ * Apka Bill POS - Compact Official Thermal Receipt Preview & Detail Modal
  *
- * Single source of truth for invoice inspection & post-checkout receipt actions across:
- * 1. BillingScreen (Post-Checkout Invoice & Receipt Screen)
- * 2. DashboardScreen (Recent Transactions)
- * 3. BillsScreen (View All Invoices / Sales History)
- * 4. CustomersScreen (Customer Purchase History)
- *
- * Real Invoice Data Displayed:
- * 1. Store Branding (Logo, Name, GSTIN, Address, Phone, Template)
- * 2. Invoice Info (Invoice Number, Completed/Paid Status, Date & Time, Cashier)
- * 3. Customer Info (Customer Name, Mobile Number / Walk-in Customer)
- * 4. Billed Products (Product Name, Quantity, Unit Price, Line Total)
- * 5. Totals (Subtotal, Discount, GST/Tax, Round-Off, Grand Total)
- * 6. Payment Info (Payment Method, Paid Amount)
- * 7. UPI QR (Rendered only when store UPI ID is configured; zero fake QR)
- * 8. Invoice Actions (View Receipt, Print ESC/POS, Download/Share PDF, WhatsApp, Duplicate, Void, New Sale)
+ * Features:
+ * - Visually styled like an authentic, compact thermal receipt paper ticket
+ * - Single source of truth for receipt data (Print, Preview, WhatsApp, PDF)
+ * - Scrollable receipt body with Dotted / Dashed dividers & Monospace typography
+ * - Sticky bottom action container (Print, WhatsApp, Download PDF, View Receipt, New Sale)
+ * - Safe area / Android navigation bar compliant
  */
 
 import React, { useState } from 'react';
@@ -32,16 +23,18 @@ import {
   Share,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SaleInvoice } from '../../types';
 import PrinterService from '../../native/services/PrinterService';
 import ReceiptFormatter from '../../native/utils/ReceiptFormatter';
 import useSettings from '../../hooks/useSettings';
-import { Button, Badge, StatusBadge, COLORS, SPACING, RADIUS, SHADOWS } from './UIComponents';
+import { Button, StatusBadge, COLORS, SPACING, RADIUS, SHADOWS } from './UIComponents';
 import useResponsive from '../../hooks/useResponsive';
 import logger from '../../utils/logger';
 import WhatsAppTemplateService, {
   WHATSAPP_TEMPLATES_REGISTRY,
 } from '../../services/whatsapp/WhatsAppTemplateService';
+import SalesService from '../../services/api/sales.service';
 import { resolveImageUrl } from '../../utils/imageHelper';
 
 export interface InvoiceDetailModalProps {
@@ -63,6 +56,7 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
   onVoidSuccess,
   onDuplicatePOS,
 }) => {
+  const insets = useSafeAreaInsets();
   const { isMedium, isExpanded } = useResponsive();
   const { data: storeSettings } = useSettings();
 
@@ -92,9 +86,9 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
   const storeGstin = storeSettings?.gstin || '';
   const storeUpi = storeSettings?.upiId?.trim() || undefined;
   const storeLogo = storeSettings?.logoUrl ? resolveImageUrl(storeSettings.logoUrl) : null;
-  const templateName = storeSettings?.invoiceTemplate || 'Classic Thermal';
+  const isSynced = invoice.sync_status === 'synced';
 
-  // Build standard structured receipt payload for ESC/POS printing
+  // Build standard structured receipt payload for ESC/POS printing & preview
   const buildReceiptData = () => {
     const qrPayload = storeUpi
       ? `upi://pay?pa=${encodeURIComponent(storeUpi)}&pn=${encodeURIComponent(storeName)}&am=${grandTotal.toFixed(2)}&cu=INR&tn=${encodeURIComponent(invNumber)}`
@@ -102,104 +96,109 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
 
     return {
       storeName,
-      storeAddress: storeAddress || undefined,
-      storePhone: storePhone || undefined,
-      storeGstin: storeGstin || undefined,
+      storeAddress,
+      storePhone,
+      storeGstin,
       upiId: storeUpi,
       qrData: qrPayload,
+      paperWidth: (storeSettings?.paperWidth ? `${storeSettings.paperWidth}mm` : '58mm') as any,
       invoiceNumber: invNumber,
       date: invoice.created_at ? new Date(invoice.created_at).toLocaleString('en-IN') : new Date().toLocaleString('en-IN'),
+      cashierName,
       customerName,
       customerPhone: customerPhone || undefined,
-      cashierName,
-      items: (invoice.items || []).map((i: any) => {
-        const pName = i.product_name || i.productName || i.name || 'Product';
-        const qty = Number(i.quantity || 1);
-        const unitPrice = Number(i.unit_price || i.price || 0);
-        const total = Number(i.subtotal || i.lineTotal || unitPrice * qty);
-        return {
-          name: pName,
-          quantity: qty,
-          unitPrice,
-          total,
-        };
-      }),
+      items: (invoice.items || []).map((item: any) => ({
+        name: item.product_name || item.productName || item.name || 'Item',
+        quantity: Number(item.quantity || 1),
+        unitPrice: Number(item.unit_price || item.price || 0),
+        total: Number(item.subtotal || item.lineTotal || (item.unit_price || item.price || 0) * (item.quantity || 1)),
+      })),
       subtotal,
       discount,
       gst: tax,
-      roundOff,
       grandTotal,
       paymentMethod,
       footerText: storeSettings?.receiptFooter || 'Thank you for shopping with us!',
     };
   };
 
-  // 1. Print Receipt (Native ESC/POS Thermal)
   const handlePrintReceipt = async () => {
     setIsPrinting(true);
     try {
       const receiptData = buildReceiptData();
-      const res = await PrinterService.printReceipt({ data: receiptData });
-      if (res.success) {
-        Alert.alert('Success', `Receipt sent to ${PrinterService.getActiveDriver().name}.`);
+      const success = await PrinterService.printReceipt({
+        invoiceNumber: invNumber,
+        data: receiptData,
+      });
+
+      if (success) {
+        Alert.alert('Printed', `Invoice ${invNumber} sent to printer.`);
       } else {
-        Alert.alert('Printer Error', res.error || 'Could not print receipt.');
+        Alert.alert('Print Error', 'Could not reach configured printer. Check connection in Settings.');
       }
     } catch (err: any) {
-      Alert.alert('Print Failed', err.message || 'Printer communication failed.');
+      Alert.alert('Print Failed', err.message || 'An error occurred while printing.');
     } finally {
       setIsPrinting(false);
     }
   };
 
-  // 2. WhatsApp Share Action
-  const handleWhatsAppShare = () => {
-    const cleanPhone = customerPhone ? customerPhone.replace(/[^0-9]/g, '').slice(-10) : '';
-    const configuredTemplateId = storeSettings?.whatsappTemplate || 'sales_invoice';
-    const foundTpl = WHATSAPP_TEMPLATES_REGISTRY.find((t) => t.id === configuredTemplateId);
-    const templateText = foundTpl ? foundTpl.defaultTemplate : WHATSAPP_TEMPLATES_REGISTRY[0].defaultTemplate;
-
-    const msg = WhatsAppTemplateService.resolveTemplate(templateText, invoice, storeSettings);
-    WhatsAppTemplateService.sendWhatsApp(cleanPhone, msg);
-  };
-
-  // 3. Share / PDF Share Action
-  const handleShareInvoice = async () => {
-    const itemsList = (invoice.items || [])
-      .map((i: any) => `• ${i.product_name || i.productName || 'Item'} (${i.quantity}x) = ${inr(i.subtotal || i.lineTotal || 0)}`)
-      .join('\n');
-
-    const summary = `🧾 *${storeName}*\nInvoice: ${invNumber}\nDate: ${invoice.created_at ? new Date(invoice.created_at).toLocaleString('en-IN') : 'Today'}\nCustomer: ${customerName}${customerPhone ? ` (${customerPhone})` : ''}\n------------------\n${itemsList}\n------------------\nSubtotal: ${inr(subtotal)}\nDiscount: -${inr(discount)}\nTax/GST: ${inr(tax)}\n*Grand Total: ${inr(grandTotal)}*\nPayment: ${paymentMethod} (${inr(paidAmount)})\n${storeSettings?.receiptFooter || 'Thank you for shopping with us!'}`;
-
+  const handleWhatsAppShare = async () => {
     try {
-      await Share.share({
-        title: `Invoice ${invNumber}`,
-        message: summary,
-      });
+      const template = WHATSAPP_TEMPLATES_REGISTRY.find(
+        (t) => t.id === storeSettings?.whatsappTemplate
+      ) || WHATSAPP_TEMPLATES_REGISTRY[0];
+
+      const cleanPhone = customerPhone.replace(/\D/g, '');
+      const validPhone = cleanPhone.length >= 10 ? cleanPhone : '';
+
+      const resolved = WhatsAppTemplateService.resolveTemplate(
+        template.defaultTemplate,
+        invoice,
+        storeSettings
+      );
+
+      await WhatsAppTemplateService.sendWhatsApp(validPhone, resolved);
     } catch (err: any) {
-      logger.info('Share dismissed:', err.message);
+      Alert.alert('WhatsApp Error', err.message || 'Could not launch WhatsApp.');
     }
   };
 
-  // 4. Duplicate in POS (Load to cart)
+  const handleShareInvoice = async () => {
+    try {
+      const summaryText = `*INVOICE: ${invNumber}*\nStore: ${storeName}\nDate: ${new Date().toLocaleDateString('en-IN')}\nCustomer: ${customerName}\n\n*Items:*\n${(invoice.items || []).map((i: any) => `• ${i.name || i.product_name} x${i.quantity} = ${inr(i.subtotal || (i.unit_price * i.quantity))}`).join('\n')}\n\n*Grand Total: ${inr(grandTotal)}*\nPaid via ${paymentMethod}\n\nThank you!`;
+      await Share.share({
+        title: `Invoice ${invNumber}`,
+        message: summaryText,
+      });
+    } catch (err: any) {
+      logger.warn('[InvoiceDetailModal] Share error:', err.message);
+    }
+  };
+
   const handleDuplicateToPOS = () => {
     if (onDuplicatePOS) {
       onDuplicatePOS(invoice);
       onClose();
-    } else {
-      Alert.alert('Notice', 'Cart duplication available on Billing POS screen.');
     }
   };
 
-  // 5. Void Invoice
-  const handleConfirmVoid = async () => {
+  const confirmVoidInvoice = async () => {
     if (!voidReason.trim()) {
-      Alert.alert('Required', 'Please enter a void reason.');
+      Alert.alert('Reason Required', 'Please enter a valid reason for voiding this invoice.');
       return;
     }
     setIsVoiding(true);
     try {
-      const updated: SaleInvoice = {
+      const targetIdentifier = invoice.local_id || invoice.invoice_number || invoice.id;
+      const voided = await SalesService.voidSale(
+        targetIdentifier,
+        voidReason.trim(),
+        cashierName,
+        invoice.store_id || 1
+      );
+
+      const updated: SaleInvoice = voided || {
         ...invoice,
         status: 'voided',
         void_reason: voidReason.trim(),
@@ -219,217 +218,252 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
 
   return (
     <>
-      {/* Primary Detail Modal */}
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      {/* Primary Detail & Compact Receipt Modal */}
+      <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, (isMedium || isExpanded) ? { maxWidth: 580, width: '92%' } : { width: '95%' }]}>
-            {/* Header */}
-            <View style={styles.headerRow}>
+          <View style={[styles.modalCard, (isMedium || isExpanded) ? { maxWidth: 480, width: '92%' } : { width: '96%' }]}>
+            
+            {/* Modal Header */}
+            <View style={styles.topHeader}>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.invoiceTitle}>{invNumber}</Text>
+                  <Text style={styles.headerInvoiceNum}>{invNumber}</Text>
                   <View style={{ marginLeft: 8 }}>
                     {isVoid ? (
                       <StatusBadge status="VOIDED" variant="danger" />
+                    ) : isSynced ? (
+                      <StatusBadge status="SYNCED" variant="success" />
                     ) : (
-                      <StatusBadge status={invoice.status || 'PAID'} variant="success" />
+                      <StatusBadge status="PENDING" variant="warning" />
                     )}
                   </View>
                 </View>
-                <Text style={styles.invoiceDate}>
-                  {invoice.created_at ? new Date(invoice.created_at).toLocaleString('en-IN') : 'Today'} · {paymentMethod}
+                <Text style={styles.headerDate}>
+                  {invoice.created_at ? new Date(invoice.created_at).toLocaleString('en-IN') : 'Today'} · {cashierName}
                 </Text>
               </View>
 
-              <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Text style={styles.closeBtnText}>✕</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeIconBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.closeIconText}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-              {/* 1. Store Branding Card */}
-              <View style={styles.brandingCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {storeLogo ? (
-                    <Image source={{ uri: storeLogo }} style={styles.storeLogo} resizeMode="contain" />
-                  ) : (
-                    <View style={styles.storeLogoPlaceholder}>
-                      <Text style={{ fontSize: 16 }}>🏬</Text>
-                    </View>
-                  )}
-                  <View style={{ marginLeft: 10, flex: 1 }}>
-                    <Text style={styles.storeNameText}>{storeName}</Text>
-                    {storeGstin ? <Text style={styles.storeMetaText}>GSTIN: {storeGstin}</Text> : null}
-                    {storePhone ? <Text style={styles.storeMetaText}>Phone: {storePhone}</Text> : null}
-                    {storeAddress ? <Text style={styles.storeMetaText} numberOfLines={1}>{storeAddress}</Text> : null}
-                  </View>
-                </View>
-                <View style={styles.templateBadgeRow}>
-                  <Text style={styles.templateBadgeText}>Layout: {templateName}</Text>
-                  <Text style={styles.templateBadgeText}>Cashier: {cashierName}</Text>
-                </View>
+            {/* Scrollable Receipt Body (Styled as a Compact Official Thermal Slip) */}
+            <ScrollView style={styles.receiptScrollArea} contentContainerStyle={styles.receiptPaper}>
+              
+              {/* Store Branding Header */}
+              <View style={styles.receiptStoreHeader}>
+                {storeLogo ? (
+                  <Image source={{ uri: storeLogo }} style={styles.receiptStoreLogo} resizeMode="contain" />
+                ) : null}
+                <Text style={styles.receiptStoreName}>{storeName}</Text>
+                {storeGstin ? <Text style={styles.receiptStoreMeta}>GSTIN: {storeGstin}</Text> : null}
+                {storeAddress ? <Text style={styles.receiptStoreMeta} numberOfLines={2}>{storeAddress}</Text> : null}
+                {storePhone ? <Text style={styles.receiptStoreMeta}>Tel: {storePhone}</Text> : null}
               </View>
 
-              {/* 2. Customer Card */}
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Customer:</Text>
-                  <Text style={styles.infoValue}>👤 {customerName}</Text>
-                </View>
-                {customerPhone ? (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Mobile Number:</Text>
-                    <Text style={styles.infoValue}>📱 {customerPhone}</Text>
-                  </View>
-                ) : (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Mobile Number:</Text>
-                    <Text style={[styles.infoValue, { color: COLORS.textMuted }]}>Walk-in (No Phone)</Text>
-                  </View>
-                )}
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Payment Status:</Text>
-                  <Text style={[styles.infoValue, { color: COLORS.successText }]}>✓ Completed ({paymentMethod})</Text>
-                </View>
-              </View>
+              <View style={styles.dashedDivider} />
 
-              {/* 3. Billed Products Table */}
-              <View style={styles.sectionBox}>
-                <Text style={styles.sectionHeader}>Billed Products ({invoice.items?.length || 0})</Text>
-                {invoice.items && invoice.items.length > 0 ? (
-                  invoice.items.map((item: any, idx: number) => {
-                    const iName = item.product_name || item.productName || item.name || 'Product';
-                    const iQty = Number(item.quantity || 1);
-                    const iPrice = Number(item.unit_price || item.price || 0);
-                    const iTotal = Number(item.subtotal || item.lineTotal || iPrice * iQty);
-                    return (
-                      <View key={idx} style={styles.lineItemRow}>
-                        <View style={{ flex: 1, marginRight: 8 }}>
-                          <Text style={styles.itemName} numberOfLines={1}>
-                            {iName}
-                          </Text>
-                          <Text style={styles.itemMeta}>
-                            {inr(iPrice)} × {iQty} {item.discount ? `(Disc ${item.discount}%)` : ''}
-                          </Text>
-                        </View>
-                        <Text style={styles.itemTotal}>{inr(iTotal)}</Text>
+              {/* Customer & Sale Metadata Row */}
+              <View style={styles.metaRow}>
+                <Text style={styles.metaTextLeft}>Customer: <Text style={styles.metaTextBold}>{customerName}</Text></Text>
+                <Text style={styles.metaTextRight}>{paymentMethod}</Text>
+              </View>
+              {customerPhone ? (
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaTextLeft}>Phone: {customerPhone}</Text>
+                  <Text style={styles.metaTextRight}>{isVoid ? 'VOIDED' : 'PAID'}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.dashedDivider} />
+
+              {/* Billed Items Header */}
+              <View style={styles.itemHeaderRow}>
+                <Text style={[styles.itemHeaderCol, { flex: 2 }]}>ITEM</Text>
+                <Text style={[styles.itemHeaderCol, { flex: 1, textAlign: 'center' }]}>QTY</Text>
+                <Text style={[styles.itemHeaderCol, { flex: 1, textAlign: 'right' }]}>RATE</Text>
+                <Text style={[styles.itemHeaderCol, { flex: 1.2, textAlign: 'right' }]}>TOTAL</Text>
+              </View>
+              <View style={styles.solidDivider} />
+
+              {/* Billed Items List */}
+              {invoice.items && invoice.items.length > 0 ? (
+                invoice.items.map((item: any, idx: number) => {
+                  const iName = item.product_name || item.productName || item.name || 'Product';
+                  const iQty = Number(item.quantity || 1);
+                  const iPrice = Number(item.unit_price || item.price || 0);
+                  const iTotal = Number(item.subtotal || item.lineTotal || iPrice * iQty);
+                  return (
+                    <View key={idx} style={styles.receiptItemRow}>
+                      <View style={{ flex: 2, paddingRight: 4 }}>
+                        <Text style={styles.itemRowName} numberOfLines={2}>{iName}</Text>
+                        {item.discount ? <Text style={styles.itemRowDisc}>Disc {item.discount}%</Text> : null}
                       </View>
-                    );
-                  })
-                ) : (
-                  <Text style={styles.emptyText}>No item details attached.</Text>
-                )}
-              </View>
-
-              {/* 4. Financial Totals */}
-              <View style={styles.sectionBox}>
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Subtotal:</Text>
-                  <Text style={styles.totalVal}>{inr(subtotal)}</Text>
-                </View>
-                {discount > 0 && (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Discount:</Text>
-                    <Text style={[styles.totalVal, { color: COLORS.warning }]}>-{inr(discount)}</Text>
-                  </View>
-                )}
-                {tax > 0 && (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Output GST / Tax:</Text>
-                    <Text style={styles.totalVal}>{inr(tax)}</Text>
-                  </View>
-                )}
-                {roundOff !== 0 && (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Round Off:</Text>
-                    <Text style={styles.totalVal}>{roundOff > 0 ? `+${inr(roundOff)}` : `-${inr(Math.abs(roundOff))}`}</Text>
-                  </View>
-                )}
-                <View style={[styles.totalRow, styles.grandTotalRow]}>
-                  <Text style={styles.grandTotalLabel}>Grand Total:</Text>
-                  <Text style={styles.grandTotalVal}>{inr(grandTotal)}</Text>
-                </View>
-                <View style={[styles.totalRow, { marginTop: 4 }]}>
-                  <Text style={styles.infoLabel}>Paid via {paymentMethod}:</Text>
-                  <Text style={[styles.infoValue, { color: COLORS.successText }]}>{inr(paidAmount)}</Text>
-                </View>
-              </View>
-
-              {/* 5. UPI QR Section (Shown strictly when store UPI is configured) */}
-              {storeUpi && (
-                <View style={styles.upiQrBox}>
-                  <Text style={styles.upiQrTitle}>⚡ Instant UPI Payment QR</Text>
-                  <Text style={styles.upiQrSub}>VPA: {storeUpi}</Text>
-                  <Text style={styles.upiQrAmount}>Amount: {inr(grandTotal)}</Text>
-                  <Text style={styles.upiNotice}>Customers can scan this receipt code from GPay, PhonePe, or Paytm.</Text>
-                </View>
+                      <Text style={[styles.itemRowCol, { flex: 1, textAlign: 'center' }]}>{iQty}</Text>
+                      <Text style={[styles.itemRowCol, { flex: 1, textAlign: 'right' }]}>{iPrice.toFixed(0)}</Text>
+                      <Text style={[styles.itemRowCol, { flex: 1.2, textAlign: 'right', fontWeight: '700' }]}>{iTotal.toFixed(2)}</Text>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.emptyItemsText}>No items attached.</Text>
               )}
 
-              {/* 6. Invoice Actions Grid */}
-              <View style={styles.actionsGrid}>
-                <TouchableOpacity style={styles.actionBtnPrimary} onPress={handlePrintReceipt} disabled={isPrinting}>
-                  <Text style={styles.actionBtnPrimaryText}>{isPrinting ? 'Printing...' : '🖨️ Print ESC/POS'}</Text>
-                </TouchableOpacity>
+              <View style={styles.solidDivider} />
 
-                <TouchableOpacity style={styles.actionBtnSecondary} onPress={() => setReceiptModalVisible(true)}>
-                  <Text style={styles.actionBtnSecondaryText}>👁️ View Receipt</Text>
-                </TouchableOpacity>
+              {/* Financial Totals Summary */}
+              <View style={styles.totalsContainer}>
+                <View style={styles.receiptTotalRow}>
+                  <Text style={styles.receiptTotalLabel}>Subtotal</Text>
+                  <Text style={styles.receiptTotalValue}>{inr(subtotal)}</Text>
+                </View>
 
-                <TouchableOpacity style={styles.actionBtnSecondary} onPress={handleWhatsAppShare}>
-                  <Text style={styles.actionBtnSecondaryText}>💬 WhatsApp</Text>
-                </TouchableOpacity>
+                {discount > 0 ? (
+                  <View style={styles.receiptTotalRow}>
+                    <Text style={styles.receiptTotalLabel}>Discount</Text>
+                    <Text style={[styles.receiptTotalValue, { color: '#DC2626' }]}>-{inr(discount)}</Text>
+                  </View>
+                ) : null}
 
-                <TouchableOpacity style={styles.actionBtnSecondary} onPress={handleShareInvoice}>
-                  <Text style={styles.actionBtnSecondaryText}>📤 Download / Share</Text>
-                </TouchableOpacity>
+                {tax > 0 ? (
+                  <View style={styles.receiptTotalRow}>
+                    <Text style={styles.receiptTotalLabel}>Output GST</Text>
+                    <Text style={styles.receiptTotalValue}>{inr(tax)}</Text>
+                  </View>
+                ) : null}
 
-                {onDuplicatePOS && (
-                  <TouchableOpacity style={styles.actionBtnSecondary} onPress={handleDuplicateToPOS}>
-                    <Text style={styles.actionBtnSecondaryText}>🛒 Duplicate in POS</Text>
-                  </TouchableOpacity>
-                )}
+                {roundOff !== 0 ? (
+                  <View style={styles.receiptTotalRow}>
+                    <Text style={styles.receiptTotalLabel}>Round Off</Text>
+                    <Text style={styles.receiptTotalValue}>{roundOff > 0 ? `+${inr(roundOff)}` : `-${inr(Math.abs(roundOff))}`}</Text>
+                  </View>
+                ) : null}
 
-                {!isVoid && (
-                  <TouchableOpacity style={styles.actionBtnDanger} onPress={() => setVoidModalVisible(true)}>
-                    <Text style={styles.actionBtnDangerText}>🚫 Void Invoice</Text>
-                  </TouchableOpacity>
-                )}
+                <View style={[styles.receiptTotalRow, styles.receiptGrandTotalRow]}>
+                  <Text style={styles.receiptGrandTotalLabel}>GRAND TOTAL</Text>
+                  <Text style={styles.receiptGrandTotalValue}>{inr(grandTotal)}</Text>
+                </View>
+
+                <View style={[styles.receiptTotalRow, { marginTop: 3 }]}>
+                  <Text style={styles.receiptTotalLabel}>Amount Paid ({paymentMethod})</Text>
+                  <Text style={[styles.receiptTotalValue, { color: '#059669', fontWeight: '700' }]}>{inr(paidAmount)}</Text>
+                </View>
               </View>
+
+              {/* Real UPI QR Box (Only rendered if UPI ID is configured) */}
+              {storeUpi ? (
+                <View style={styles.upiReceiptCard}>
+                  <Text style={styles.upiReceiptTitle}>⚡ Scan & Pay via UPI</Text>
+                  <Text style={styles.upiReceiptVpa}>{storeUpi}</Text>
+                  <Text style={styles.upiReceiptNotice}>GPay · PhonePe · Paytm · BHIM</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.dashedDivider} />
+              <Text style={styles.receiptFooterNote}>{storeSettings?.receiptFooter || 'Thank you for your business!'}</Text>
             </ScrollView>
 
-            <View style={styles.footerRow}>
+            {/* Sticky Bottom Action Bar (Fixed at bottom outside ScrollView) */}
+            <View style={[styles.stickyActionBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+              
+              {/* Row 1: Primary Print & WhatsApp */}
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.primaryActionBtn, { flex: 1, backgroundColor: '#0F172A' }]}
+                  onPress={handlePrintReceipt}
+                  disabled={isPrinting}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.primaryActionBtnText}>{isPrinting ? 'Printing...' : '🖨️ Print'}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.primaryActionBtn, { flex: 1, backgroundColor: '#16A34A' }]}
+                  onPress={handleWhatsAppShare}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.primaryActionBtnText}>💬 WhatsApp</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Row 2: Secondary Download PDF & View Monospace Ticket */}
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.secondaryActionBtn, { flex: 1 }]}
+                  onPress={handleShareInvoice}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.secondaryActionBtnText}>📄 PDF Share</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.secondaryActionBtn, { flex: 1 }]}
+                  onPress={() => setReceiptModalVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.secondaryActionBtnText}>👁️ View Receipt</Text>
+                </TouchableOpacity>
+
+                {onDuplicatePOS ? (
+                  <TouchableOpacity
+                    style={[styles.secondaryActionBtn, { width: 44, alignItems: 'center' }]}
+                    onPress={handleDuplicateToPOS}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 14 }}>🛒</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {!isVoid ? (
+                  <TouchableOpacity
+                    style={[styles.secondaryActionBtn, { width: 44, alignItems: 'center', borderColor: '#FECACA' }]}
+                    onPress={() => setVoidModalVisible(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 13, color: '#DC2626' }}>🚫</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {/* Final Row: New Sale or Close */}
               {onNewSale ? (
-                <Button
-                  title="➕ Start New Sale"
-                  variant="primary"
+                <TouchableOpacity
+                  style={styles.newSaleBtn}
                   onPress={() => {
                     onClose();
                     onNewSale();
                   }}
-                  style={{ flex: 1, marginRight: 8 }}
-                />
-              ) : null}
-              <Button
-                title={onNewSale ? 'Done' : 'Close'}
-                variant="secondary"
-                onPress={onClose}
-                style={onNewSale ? { flex: 1 } : { width: '100%' }}
-              />
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.newSaleBtnText}>✓ Start New Sale</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.dismissBtn} onPress={onClose} activeOpacity={0.8}>
+                  <Text style={styles.dismissBtnText}>Close</Text>
+                </TouchableOpacity>
+              )}
             </View>
+
           </View>
         </View>
       </Modal>
 
-      {/* ASCII Receipt Preview Modal */}
+      {/* Monospace ASCII Thermal Receipt Preview Modal */}
       <Modal visible={receiptModalVisible} animationType="fade" transparent onRequestClose={() => setReceiptModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxWidth: 440, width: '92%' }]}>
-            <Text style={styles.modalSubTitle}>ESC/POS Thermal Receipt Preview</Text>
-            <ScrollView style={styles.receiptBox}>
-              <Text style={styles.receiptMonoText}>{formattedAscii}</Text>
+          <View style={[styles.modalCard, { maxWidth: 380, width: '90%' }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#0F172A' }}>ESC/POS Monospace Ticket</Text>
+              <TouchableOpacity onPress={() => setReceiptModalVisible(false)}>
+                <Text style={{ fontSize: 16, color: '#64748B', fontWeight: '700' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.monoBox}>
+              <Text style={styles.monoText}>{formattedAscii}</Text>
             </ScrollView>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACING.sm }}>
-              <Button title="🖨️ Print Ticket" onPress={handlePrintReceipt} style={{ flex: 1, marginRight: 6 }} />
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+              <Button title="🖨️ Print Ticket" onPress={handlePrintReceipt} style={{ flex: 1 }} />
               <Button title="Close" variant="secondary" onPress={() => setReceiptModalVisible(false)} style={{ flex: 1 }} />
             </View>
           </View>
@@ -439,22 +473,33 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
       {/* Void Reason Confirmation Dialog */}
       <Modal visible={voidModalVisible} animationType="fade" transparent onRequestClose={() => setVoidModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxWidth: 400, width: '90%' }]}>
-            <Text style={[styles.modalTitle, { color: COLORS.danger }]}>Confirm Void Invoice</Text>
-            <Text style={{ fontSize: 12, color: COLORS.textMuted, marginVertical: 6 }}>
-              Voiding will reverse sales revenue in financial reports. Please enter the reason for audit logs:
+          <View style={[styles.modalCard, { maxWidth: 380, width: '90%' }]}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: '#DC2626', marginBottom: 4 }}>Confirm Void Invoice</Text>
+            <Text style={{ fontSize: 12, color: '#64748B', marginBottom: 8 }}>
+              Voiding will reverse sales revenue in reports. Please enter the reason for audit logs:
             </Text>
             <TextInput
-              style={styles.voidInput}
-              placeholder="e.g. Customer returned items / Cashier entry error"
+              style={styles.voidTextInput}
+              placeholder="e.g. Customer returned items / Cashier error"
               value={voidReason}
               onChangeText={setVoidReason}
-              placeholderTextColor={COLORS.textMuted}
-              multiline
+              placeholderTextColor="#94A3B8"
             />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: SPACING.sm }}>
-              <Button title="Cancel" variant="secondary" onPress={() => setVoidModalVisible(false)} style={{ marginRight: 8 }} />
-              <Button title="Confirm Void" variant="danger" onPress={handleConfirmVoid} loading={isVoiding} />
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <Button
+                title={isVoiding ? 'Voiding...' : 'Confirm Void'}
+                variant="danger"
+                onPress={confirmVoidInvoice}
+                loading={isVoiding}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Cancel"
+                variant="secondary"
+                onPress={() => setVoidModalVisible(false)}
+                disabled={isVoiding}
+                style={{ flex: 1 }}
+              />
             </View>
           </View>
         </View>
@@ -466,313 +511,302 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    backgroundColor: 'rgba(15, 23, 42, 0.72)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: SPACING.sm,
+    padding: 12,
   },
-  modalContent: {
-    backgroundColor: COLORS.surface,
+  modalCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: RADIUS.lg,
-    maxHeight: '92%',
-    padding: SPACING.md,
+    maxHeight: '94%',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
     ...SHADOWS.md,
   },
-  headerRow: {
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+  },
+  headerInvoiceNum: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  headerDate: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  closeIconBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  closeIconText: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '800',
+    lineHeight: 14,
+  },
+  receiptScrollArea: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+  },
+  receiptPaper: {
+    backgroundColor: '#FFFFFF',
+    margin: 10,
+    padding: 12,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...SHADOWS.sm,
+  },
+  receiptStoreHeader: {
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+  receiptStoreLogo: {
+    width: 38,
+    height: 38,
+    marginBottom: 4,
+  },
+  receiptStoreName: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  receiptStoreMeta: {
+    fontSize: 11,
+    color: '#475569',
+    textAlign: 'center',
+    marginTop: 1,
+  },
+  dashedDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#CBD5E1',
+    borderStyle: 'dashed',
+    marginVertical: 8,
+  },
+  solidDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#0F172A',
+    marginVertical: 4,
+  },
+  metaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingBottom: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    marginVertical: 1,
   },
-  invoiceTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.text,
+  metaTextLeft: {
+    fontSize: 11,
+    color: '#475569',
   },
-  invoiceDate: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  closeBtn: {
-    padding: 6,
-  },
-  closeBtnText: {
-    fontSize: 16,
-    color: COLORS.textMuted,
+  metaTextBold: {
     fontWeight: '700',
-  },
-  scrollArea: {
-    marginVertical: SPACING.xs,
-  },
-  brandingCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: RADIUS.md,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  storeLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-  },
-  storeLogoPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  storeNameText: {
-    fontSize: 14,
-    fontWeight: '800',
     color: '#0F172A',
   },
-  storeMetaText: {
+  metaTextRight: {
     fontSize: 11,
-    color: '#64748B',
-    marginTop: 1,
+    fontWeight: '700',
+    color: '#0F172A',
   },
-  templateBadgeRow: {
+  itemHeaderRow: {
+    flexDirection: 'row',
+    paddingVertical: 2,
+  },
+  itemHeaderCol: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.2,
+  },
+  receiptItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  itemRowName: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  itemRowDisc: {
+    fontSize: 9,
+    color: '#DC2626',
+    fontWeight: '600',
+  },
+  itemRowCol: {
+    fontSize: 11,
+    color: '#0F172A',
+  },
+  emptyItemsText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    textAlign: 'center',
+    paddingVertical: 6,
+  },
+  totalsContainer: {
+    marginTop: 4,
+  },
+  receiptTotalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    paddingVertical: 1.5,
+  },
+  receiptTotalLabel: {
+    fontSize: 11,
+    color: '#475569',
+  },
+  receiptTotalValue: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  receiptGrandTotalRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#0F172A',
+    borderBottomWidth: 1,
+    borderBottomColor: '#0F172A',
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  receiptGrandTotalLabel: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  receiptGrandTotalValue: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  upiReceiptCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 8,
+    alignItems: 'center',
     marginTop: 8,
-    paddingTop: 6,
+  },
+  upiReceiptTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  upiReceiptVpa: {
+    fontSize: 10,
+    color: '#0F172A',
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  upiReceiptNotice: {
+    fontSize: 9,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  receiptFooterNote: {
+    fontSize: 10,
+    color: '#64748B',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  stickyActionBar: {
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-  },
-  templateBadgeText: {
-    fontSize: 10,
-    color: '#475569',
-    fontWeight: '600',
-  },
-  infoCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: RADIUS.md,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 2,
-  },
-  infoLabel: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    fontWeight: '600',
-  },
-  infoValue: {
-    fontSize: 12,
-    color: COLORS.text,
-    fontWeight: '700',
-  },
-  sectionBox: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  sectionHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 6,
-  },
-  lineItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  itemName: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-  itemMeta: {
-    fontSize: 11,
-    color: COLORS.textMuted,
-    marginTop: 1,
-  },
-  itemTotal: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-  emptyText: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    fontStyle: 'italic',
-    paddingVertical: 6,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 2,
-  },
-  totalLabel: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-  },
-  totalVal: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-  grandTotalRow: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    paddingTop: 6,
-    marginTop: 4,
-  },
-  grandTotalLabel: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.text,
-  },
-  grandTotalVal: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: COLORS.primary,
-  },
-  upiQrBox: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: RADIUS.md,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-  },
-  upiQrTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1D4ED8',
-  },
-  upiQrSub: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#2563EB',
-    marginTop: 2,
-  },
-  upiQrAmount: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1E40AF',
-    marginTop: 2,
-  },
-  upiNotice: {
-    fontSize: 10,
-    color: '#64748B',
-    marginTop: 4,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
-  },
-  actionBtnPrimary: {
-    flex: 1,
-    minWidth: '48%',
-    backgroundColor: COLORS.primary,
-    paddingVertical: 10,
     paddingHorizontal: 12,
+    paddingTop: 8,
+    gap: 6,
+    ...SHADOWS.md,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  primaryActionBtn: {
+    paddingVertical: 9,
     borderRadius: RADIUS.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionBtnPrimaryText: {
+  primaryActionBtnText: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  actionBtnSecondary: {
-    flex: 1,
-    minWidth: '48%',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: RADIUS.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionBtnSecondaryText: {
-    color: COLORS.text,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  actionBtnDanger: {
-    width: '100%',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
+  secondaryActionBtn: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    borderRadius: RADIUS.md,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryActionBtnText: {
+    color: '#0F172A',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  newSaleBtn: {
+    backgroundColor: '#2563EB',
+    paddingVertical: 10,
     borderRadius: RADIUS.md,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
   },
-  actionBtnDangerText: {
-    color: COLORS.danger,
+  newSaleBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  dismissBtn: {
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 9,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dismissBtnText: {
+    color: '#475569',
     fontSize: 12,
     fontWeight: '700',
   },
-  footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    marginTop: 4,
+  monoBox: {
+    maxHeight: 260,
+    backgroundColor: '#0F172A',
+    borderRadius: RADIUS.sm,
+    padding: 10,
   },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: COLORS.text,
-  },
-  modalSubTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.text,
-    marginBottom: 8,
-  },
-  receiptBox: {
-    backgroundColor: '#1E293B',
-    borderRadius: RADIUS.md,
-    padding: 12,
-    maxHeight: 340,
-  },
-  receiptMonoText: {
-    color: '#F8FAFC',
+  monoText: {
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    fontSize: 11,
-    lineHeight: 16,
+    color: '#38BDF8',
+    fontSize: 10,
+    lineHeight: 14,
   },
-  voidInput: {
+  voidTextInput: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: RADIUS.md,
-    padding: 10,
-    fontSize: 13,
-    color: COLORS.text,
-    minHeight: 60,
+    borderColor: '#CBD5E1',
+    borderRadius: RADIUS.sm,
+    padding: 8,
+    fontSize: 12,
+    color: '#0F172A',
   },
 });
 

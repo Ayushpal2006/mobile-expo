@@ -38,6 +38,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../context/AuthContext';
 import useSettings from '../hooks/useSettings';
 import { StoreSettings } from '../types';
+import { SyncEngine } from '../services/api/sync.service';
 import PrinterService, { PrinterProfile } from '../native/services/PrinterService';
 import BluetoothService from '../native/services/BluetoothService';
 import MonitoringService from '../services/monitoring.service';
@@ -345,6 +346,26 @@ export const SettingsScreen: React.FC = () => {
       });
     } catch {
       Alert.alert('Diagnostics Export', diagStr);
+    }
+  };
+
+  const handleRunLiveSyncDiagnostics = async () => {
+    try {
+      const diag = await SyncEngine.getRealSyncDiagnostics(storeId, organization?.id);
+      let report = `=== REAL SYNC DIAGNOSTICS ===\n\n`;
+      report += `Active Org: ${diag.activeContext.organizationId || 'N/A'}\n`;
+      report += `Active Store: ${diag.activeContext.storeId}\n`;
+      report += `Server URL: ${diag.activeContext.serverUrl}\n`;
+      report += `Last Synced: ${diag.lastSyncedAt || 'Never'}\n\n`;
+      report += `ENTITY             REMOTE  SQLITE  STATUS\n`;
+      report += `------------------------------------------\n`;
+      for (const e of diag.entities) {
+        report += `${e.name.padEnd(18)} ${String(e.remoteCount).padEnd(7)} ${String(e.localCount).padEnd(7)} ${e.status}\n`;
+      }
+      setJsonConfigStr(report);
+      setExportModalVisible(true);
+    } catch (err: any) {
+      Alert.alert('Diagnostics Error', err.message);
     }
   };
 
@@ -1176,9 +1197,16 @@ export const SettingsScreen: React.FC = () => {
               </Text>
 
               <Button
+                title="📊 Run Live Sync Diagnostics"
+                onPress={handleRunLiveSyncDiagnostics}
+                variant="primary"
+                style={{ marginBottom: 8 }}
+              />
+
+              <Button
                 title="📲 Send Diagnostics on WhatsApp"
                 onPress={handleSendDiagnosticsWhatsApp}
-                variant="primary"
+                variant="outline"
                 style={{ marginBottom: 8 }}
               />
 

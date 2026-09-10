@@ -90,6 +90,9 @@ export const CustomerRepository = {
    * Atomic local customer creation / update + Outbox enqueueing
    */
   async upsert(c: Partial<Customer> | any, storeId: number = 1): Promise<Customer> {
+    if (!c || typeof c !== 'object') {
+      throw new Error('Customer entity is null or undefined');
+    }
     const db = await getDatabaseAsync();
     const now = new Date().toISOString();
     const effectiveStoreId = c.store_id || storeId || 1;

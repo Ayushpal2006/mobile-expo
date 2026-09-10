@@ -306,4 +306,28 @@ export class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+
+/**
+ * Universal API payload normalizer:
+ * Extracts inner payload regardless of unwrapping depth (ApiResponse.data vs raw vs nested data.data)
+ */
+export function extractApiPayload<T = any>(res: any): T {
+  if (res === null || res === undefined) {
+    return null as any;
+  }
+  if (Array.isArray(res)) {
+    return res as unknown as T;
+  }
+  if (typeof res === 'object') {
+    if ('data' in res) {
+      const inner = res.data;
+      if (inner !== null && typeof inner === 'object' && 'data' in inner && !Array.isArray(inner)) {
+        return inner.data as T;
+      }
+      return inner as T;
+    }
+  }
+  return res as T;
+}
+
 export default apiClient;
