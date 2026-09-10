@@ -640,8 +640,11 @@ export const SyncEngine = {
                       ...saleData,
                       grand_total: saleData.grandTotal || saleData.total_amount,
                       gst: saleData.gst || saleData.tax,
+                      customer_phone: saleData.customer_phone || saleData.customerPhone,
+                      customer_name: saleData.customer_name || saleData.customerName,
                       items: (saleData.items || []).map((item: any) => ({
                         product_id: item.productId || item.product_id,
+                        product_name: item.name || item.product_name || item.title || item.productName,
                         quantity: item.quantity,
                         selling_price: item.selling_price || item.unit_price || item.unitPrice,
                         discount: item.discount || 0,

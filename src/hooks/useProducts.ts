@@ -11,6 +11,7 @@ import logger from '../utils/logger';
 export function useProducts(searchQuery?: string): QueryState<Product[]> & {
   createProduct: (p: Partial<Product>) => Promise<Product>;
   updateProduct: (p: Partial<Product>) => Promise<Product>;
+  updateSellingPrice: (id: number, newPriceRupees: number) => Promise<Product>;
   archiveProduct: (id: number) => Promise<void>;
   restoreProduct: (id: number) => Promise<void>;
 } {
@@ -57,6 +58,12 @@ export function useProducts(searchQuery?: string): QueryState<Product[]> & {
     return updated;
   };
 
+  const updateSellingPrice = async (id: number, newPriceRupees: number): Promise<Product> => {
+    const updated = await ProductService.updateSellingPrice(id, newPriceRupees, storeId);
+    await fetchProducts({ force: true });
+    return updated;
+  };
+
   const archiveProduct = async (id: number): Promise<void> => {
     await ProductService.archiveProduct(id, storeId);
     await fetchProducts({ force: true });
@@ -75,6 +82,7 @@ export function useProducts(searchQuery?: string): QueryState<Product[]> & {
     refetch: fetchProducts,
     createProduct,
     updateProduct,
+    updateSellingPrice,
     archiveProduct,
     restoreProduct,
   };

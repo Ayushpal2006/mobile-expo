@@ -567,6 +567,16 @@ class AutoReplyPrintModule : Module() {
                     AutoReplyPrint.INSTANCE.CP_Pos_FeedLine(currentHandle, 3)
                     AutoReplyPrint.INSTANCE.CP_Pos_Beep(currentHandle, 1, 300)
 
+                    // Real Hardware Paper Auto-Cut (Half Cut with Full Cut fallback, gracefully handled)
+                    try {
+                        val cutOk = AutoReplyPrint.INSTANCE.CP_Pos_HalfCutPaper(currentHandle)
+                        if (!cutOk) {
+                            AutoReplyPrint.INSTANCE.CP_Pos_FullCutPaper(currentHandle)
+                        }
+                    } catch (cutErr: Throwable) {
+                        android.util.Log.d(TAG, "Hardware auto-cut gracefully skipped on non-cutter printer: ${cutErr.message}")
+                    }
+
                     val printOk = AutoReplyPrint.INSTANCE.CP_Pos_QueryPrintResult(currentHandle, 15000)
 
                     promise.resolve(
@@ -583,7 +593,41 @@ class AutoReplyPrintModule : Module() {
             }
         }
 
-        // 12. Test Print Self-Test Ticket
+        // 12. Cut Paper (Dedicated API)
+        AsyncFunction("cutPaper") { promise: Promise ->
+            executor.execute {
+                try {
+                    val currentHandle = printerHandle
+                    if (currentHandle == null || currentHandle == Pointer.NULL || !isSdkAvailable()) {
+                        promise.reject("NOT_CONNECTED", "Printer is not connected or SDK is unavailable", null)
+                        return@execute
+                    }
+                    val ok = AutoReplyPrint.INSTANCE.CP_Pos_HalfCutPaper(currentHandle) || AutoReplyPrint.INSTANCE.CP_Pos_FullCutPaper(currentHandle)
+                    promise.resolve(ok)
+                } catch (t: Throwable) {
+                    promise.reject("CUT_ERROR", t.message ?: "Cut paper exception", t)
+                }
+            }
+        }
+
+        // 13. Feed and Cut Paper
+        AsyncFunction("feedAndCutPaper") { promise: Promise ->
+            executor.execute {
+                try {
+                    val currentHandle = printerHandle
+                    if (currentHandle == null || currentHandle == Pointer.NULL || !isSdkAvailable()) {
+                        promise.reject("NOT_CONNECTED", "Printer is not connected or SDK is unavailable", null)
+                        return@execute
+                    }
+                    val ok = AutoReplyPrint.INSTANCE.CP_Pos_FeedAndHalfCutPaper(currentHandle) || (AutoReplyPrint.INSTANCE.CP_Pos_FeedLine(currentHandle, 3) && AutoReplyPrint.INSTANCE.CP_Pos_HalfCutPaper(currentHandle))
+                    promise.resolve(ok)
+                } catch (t: Throwable) {
+                    promise.reject("FEED_CUT_ERROR", t.message ?: "Feed and cut paper exception", t)
+                }
+            }
+        }
+
+        // 14. Test Print Self-Test Ticket
         AsyncFunction("testPrint") { type: String, address: String, paperWidth: String, promise: Promise ->
             executor.execute {
                 try {
@@ -629,6 +673,12 @@ class AutoReplyPrintModule : Module() {
                     AutoReplyPrint.INSTANCE.CP_Pos_PrintTextInUTF8(handle, WString("One-Tap Printing Ready!\r\n"))
                     AutoReplyPrint.INSTANCE.CP_Pos_FeedLine(handle, 3)
                     AutoReplyPrint.INSTANCE.CP_Pos_Beep(handle, 2, 200)
+
+                    try {
+                        AutoReplyPrint.INSTANCE.CP_Pos_HalfCutPaper(handle)
+                    } catch (cutErr: Throwable) {
+                        android.util.Log.d(TAG, "Hardware auto-cut in testPrint gracefully skipped: ${cutErr.message}")
+                    }
 
                     val ok = AutoReplyPrint.INSTANCE.CP_Pos_QueryPrintResult(handle, 10000)
                     try {

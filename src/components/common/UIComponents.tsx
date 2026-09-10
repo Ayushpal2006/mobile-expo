@@ -90,11 +90,23 @@ export const SPACING = {
 };
 
 export const RADIUS = {
+  xs: 4,
   sm: 6,
   md: 10,
   lg: 14,
   xl: 20,
   full: 9999,
+};
+
+export const TYPOGRAPHY = {
+  fontSize: {
+    xs: 11,
+    sm: 13,
+    md: 15,
+    lg: 18,
+    xl: 22,
+    xxl: 28,
+  },
 };
 
 export const SHADOWS = {

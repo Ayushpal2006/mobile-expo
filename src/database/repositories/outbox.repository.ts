@@ -22,7 +22,7 @@ export const OutboxRepository = {
     };
   },
 
-  async getPendingEvents(limit = 50, storeId?: number): Promise<OutboxEvent[]> {
+  async getPendingEvents(limit = 100, storeId?: number): Promise<OutboxEvent[]> {
     const db = await getDatabaseAsync();
     let query = "SELECT * FROM outbox WHERE status = 'PENDING'";
     const params: any[] = [];
@@ -32,7 +32,19 @@ export const OutboxRepository = {
       params.push(storeId);
     }
 
-    query += ' ORDER BY id ASC LIMIT ?;';
+    query += ` ORDER BY 
+      CASE entity_type
+        WHEN 'customer' THEN 10
+        WHEN 'supplier' THEN 20
+        WHEN 'product' THEN 30
+        WHEN 'purchase' THEN 40
+        WHEN 'stock_adjustment' THEN 50
+        WHEN 'adjustment' THEN 50
+        WHEN 'expense' THEN 60
+        WHEN 'sale' THEN 70
+        ELSE 80
+      END ASC,
+      id ASC LIMIT ?;`;
     params.push(limit);
 
     const rows = await db.getAllAsync<DBOutbox>(query, ...params);

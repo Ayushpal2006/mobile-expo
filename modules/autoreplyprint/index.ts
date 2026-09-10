@@ -189,6 +189,26 @@ export const AutoReplyPrintNative = {
     }
   },
 
+  async cutPaper(): Promise<boolean> {
+    const mod = getNativeModule();
+    if (!mod) return false;
+    try {
+      return await mod.cutPaper();
+    } catch {
+      return false;
+    }
+  },
+
+  async feedAndCutPaper(): Promise<boolean> {
+    const mod = getNativeModule();
+    if (!mod) return false;
+    try {
+      return await mod.feedAndCutPaper();
+    } catch {
+      return false;
+    }
+  },
+
   async testPrint(type: string, address: string, paperWidth: '58mm' | '80mm' = '58mm'): Promise<any> {
     const mod = getNativeModule();
     if (!mod) {

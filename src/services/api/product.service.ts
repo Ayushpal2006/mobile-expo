@@ -50,6 +50,12 @@ export const ProductService = {
     return updated;
   },
 
+  async updateSellingPrice(id: number, newPriceRupees: number, storeId: number = 1): Promise<Product> {
+    const updated = await ProductRepository.updateSellingPrice(id, newPriceRupees, storeId);
+    SyncEngine.syncNow(storeId).catch(() => {});
+    return updated;
+  },
+
   async archiveProduct(id: number, storeId: number = 1): Promise<void> {
     await ProductRepository.archiveProduct(id, storeId);
     SyncEngine.syncNow(storeId).catch(() => {});

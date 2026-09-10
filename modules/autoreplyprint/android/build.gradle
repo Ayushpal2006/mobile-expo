@@ -36,7 +36,9 @@ repositories {
 }
 
 dependencies {
+    implementation files("libs/classes.jar")
+    implementation files("libs/jna-4.5.1.jar")
+    implementation files("libs/nzio.jar")
     implementation project(':expo-modules-core')
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:${safeExtGet('kotlinVersion', '1.9.24')}"
-    implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
 }

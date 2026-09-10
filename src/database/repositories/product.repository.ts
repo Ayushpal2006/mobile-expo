@@ -364,6 +364,26 @@ export const ProductRepository = {
     const updatedRow = await db.getFirstAsync<DBProduct>('SELECT * FROM products WHERE id = ?;', id || 0);
     return ProductRepository.mapToDomain(updatedRow!);
   },
+
+  /**
+   * Directly updates a product's selling price (in Rupees) with validation and outbox sync.
+   */
+  async updateSellingPrice(id: number, newPriceRupees: number, storeId: number = 1): Promise<Product> {
+    const db = await getDatabaseAsync();
+    const existing = await db.getFirstAsync<DBProduct>('SELECT * FROM products WHERE id = ?;', id);
+    if (!existing) {
+      throw new Error(`Product with ID ${id} not found`);
+    }
+    const currentDomain = ProductRepository.mapToDomain(existing);
+    return ProductRepository.upsert(
+      {
+        ...currentDomain,
+        selling_price: newPriceRupees,
+        price: newPriceRupees,
+      },
+      storeId
+    );
+  },
 };
 
 export default ProductRepository;

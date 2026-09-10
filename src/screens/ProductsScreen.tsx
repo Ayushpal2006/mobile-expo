@@ -48,6 +48,7 @@ import {
 } from '../components/common/UIComponents';
 import { inr, formatNumber } from '../utils/format';
 import { ProductService } from '../services/api/product.service';
+import { EditPriceModal } from '../components/common/EditPriceModal';
 import { useAuth } from '../context/AuthContext';
 
 const ADJUST_REASONS = [
@@ -76,11 +77,28 @@ export const ProductsScreen: React.FC = () => {
     refetch,
     createProduct,
     updateProduct,
+    updateSellingPrice,
     archiveProduct,
     restoreProduct,
   } = useProducts(searchQuery);
 
   const { adjustStock } = useInventory();
+
+  // Quick Edit Price Modal State
+  const [quickPriceProduct, setQuickPriceProduct] = useState<Product | null>(null);
+  const [quickPriceVisible, setQuickPriceVisible] = useState<boolean>(false);
+
+  const handleSaveQuickPrice = async (newPrice: number) => {
+    if (!quickPriceProduct) return;
+    await updateSellingPrice(quickPriceProduct.id, newPrice);
+    if (selectedProduct && selectedProduct.id === quickPriceProduct.id) {
+      setSelectedProduct({
+        ...selectedProduct,
+        selling_price: newPrice,
+        price: newPrice,
+      });
+    }
+  };
 
   // Add / Edit Product Form State
   const [modalVisible, setModalVisible] = useState(false);
@@ -380,10 +398,17 @@ export const ProductsScreen: React.FC = () => {
           {/* Pricing & Stock Specs */}
           <Text style={styles.detailSectionTitle}>Financials & Margins</Text>
           <View style={styles.detailSpecGrid}>
-            <View style={styles.detailSpecBox}>
-              <Text style={styles.detailSpecLabel}>Selling Price</Text>
+            <TouchableOpacity
+              style={styles.detailSpecBox}
+              onPress={() => {
+                setQuickPriceProduct(p);
+                setQuickPriceVisible(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.detailSpecLabel}>Selling Price ✎</Text>
               <Text style={styles.detailSpecVal}>{inr(p.selling_price || p.price || 0)}</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.detailSpecBox}>
               <Text style={styles.detailSpecLabel}>Cost Price</Text>
               <Text style={styles.detailSpecVal}>{inr(p.cost_price || 0)}</Text>
@@ -547,7 +572,15 @@ export const ProductsScreen: React.FC = () => {
                     </View>
 
                     <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-                      <Text style={styles.prodPrice}>{inr(item.selling_price || item.price || 0)}</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setQuickPriceProduct(item);
+                          setQuickPriceVisible(true);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.prodPrice}>{inr(item.selling_price || item.price || 0)} ✎</Text>
+                      </TouchableOpacity>
                       {!isExpanded && (
                         <View style={{ flexDirection: 'row', marginTop: 6 }}>
                           <TouchableOpacity
@@ -556,6 +589,16 @@ export const ProductsScreen: React.FC = () => {
                             activeOpacity={0.7}
                           >
                             <Text style={styles.actionBtnText}>Adjust</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setQuickPriceProduct(item);
+                              setQuickPriceVisible(true);
+                            }}
+                            style={[styles.actionBtn, { backgroundColor: '#EFF6FF', marginLeft: 4 }]}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>Price</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => openEditModal(item)}
@@ -806,6 +849,14 @@ export const ProductsScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Quick Edit Selling Price Modal */}
+      <EditPriceModal
+        visible={quickPriceVisible}
+        product={quickPriceProduct}
+        onClose={() => setQuickPriceVisible(false)}
+        onSave={handleSaveQuickPrice}
+      />
     </SafeAreaView>
   );
 };

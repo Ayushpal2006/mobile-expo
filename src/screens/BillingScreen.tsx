@@ -45,8 +45,10 @@ import HeldCartRepository from '../database/repositories/held_cart.repository';
 import { useAuth } from '../context/AuthContext';
 import { resolveImageUrl } from '../utils/imageHelper';
 import logger from '../utils/logger';
-import { Product, Customer, CartItem, CheckoutPayload, SaleInvoice, HeldCart } from '../types';
 import InvoiceDetailModal from '../components/common/InvoiceDetailModal';
+import { EditPriceModal } from '../components/common/EditPriceModal';
+import { calculateBillingTotals } from '../utils/billing-math';
+import { Product, CartItem, Customer, SaleInvoice, HeldCart, CheckoutPayload } from '../types';
 import WhatsAppTemplateService, {
   WHATSAPP_TEMPLATES_REGISTRY,
 } from '../services/whatsapp/WhatsAppTemplateService';
@@ -76,12 +78,40 @@ export const BillingScreen: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
 
   // Domain Query Hooks
-  const { data: productsData, isLoading: loadingProducts } = useProducts(searchQuery);
+  const { data: productsData, isLoading: loadingProducts, updateSellingPrice } = useProducts(searchQuery);
   const { data: customersData, createCustomer } = useCustomers();
   const { processCheckout } = useSales();
 
   const products = productsData || [];
   const customers = customersData || [];
+
+  // Quick Price Edit Modal State
+  const [priceEditProduct, setPriceEditProduct] = useState<Product | null>(null);
+  const [priceEditModalVisible, setPriceEditModalVisible] = useState<boolean>(false);
+
+  const handleOpenPriceEdit = (p: Product) => {
+    setPriceEditProduct(p);
+    setPriceEditModalVisible(true);
+  };
+
+  const handleSavePriceEdit = async (newPrice: number) => {
+    if (!priceEditProduct) return;
+    await updateSellingPrice(priceEditProduct.id, newPrice);
+    setCart((prev) =>
+      prev.map((item) =>
+        item.product.id === priceEditProduct.id
+          ? {
+              ...item,
+              product: {
+                ...item.product,
+                selling_price: newPrice,
+                price: newPrice,
+              },
+            }
+          : item
+      )
+    );
+  };
 
   // Extract Categories
   const categories = useMemo(() => {
@@ -284,53 +314,28 @@ export const BillingScreen: React.FC = () => {
     await loadHeldCarts();
   };
 
-  // Cart Math matching Web cartTotals
+  // Unified Billing Math matching Web canonical calculateBillingTotals
   const totals = useMemo(() => {
-    let grossSubtotal = 0;
-    let itemDiscountsTotal = 0;
-    let gstTotal = 0;
-
-    for (const item of cart) {
-      const price = item.product.selling_price || item.product.price || 0;
-      const line = price * item.quantity;
-      const disc = (line * (item.discountPercent || 0)) / 100;
-      const taxable = line - disc;
-      const gstRate = item.product.gst !== undefined ? item.product.gst : 18;
-      const tax = (taxable * gstRate) / 100;
-
-      grossSubtotal += line;
-      itemDiscountsTotal += disc;
-      gstTotal += tax;
-    }
-
-    const discNum = Math.max(0, parseFloat(discountValue) || 0);
-    let cartDiscount = 0;
-    if (discountMode === 'percent') {
-      cartDiscount = (grossSubtotal * Math.min(100, discNum)) / 100;
-    } else {
-      cartDiscount = Math.min(grossSubtotal, discNum);
-    }
-
-    const totalDiscount = itemDiscountsTotal + cartDiscount;
-    const finalGst = Math.round(gstTotal);
-    const unroundedTotal = Math.max(0, grossSubtotal - totalDiscount + finalGst);
-
-    let roundOff = 0;
-    let grandTotal = unroundedTotal;
-
-    if (enableRoundOff) {
-      grandTotal = Math.round(unroundedTotal);
-      roundOff = grandTotal - unroundedTotal;
-    }
+    const result = calculateBillingTotals(
+      cart.map((item) => ({
+        price: item.product.selling_price ?? item.product.price ?? 0,
+        quantity: item.quantity,
+        gstRate: item.product.gst ?? 18,
+        discountPercent: item.discountPercent ?? 0,
+      })),
+      Math.max(0, parseFloat(discountValue) || 0),
+      discountMode,
+      enableRoundOff
+    );
 
     return {
-      subtotal: grossSubtotal,
-      itemDiscountsTotal,
-      cartDiscount,
-      totalDiscount,
-      gst: finalGst,
-      roundOff,
-      grandTotal: Math.max(0, grandTotal),
+      subtotal: result.subtotal,
+      itemDiscountsTotal: result.itemDiscountsTotal,
+      cartDiscount: result.cartDiscount,
+      totalDiscount: result.totalDiscount,
+      gst: result.gst,
+      roundOff: result.roundOff,
+      grandTotal: result.grandTotal,
     };
   }, [cart, discountMode, discountValue, enableRoundOff]);
 
@@ -866,7 +871,13 @@ export const BillingScreen: React.FC = () => {
                       </View>
 
                       <View style={styles.priceCol}>
-                        <Text style={styles.catalogPrice}>{inr(price)}</Text>
+                        <TouchableOpacity
+                          style={styles.priceEditTouch}
+                          onPress={() => handleOpenPriceEdit(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={styles.catalogPrice}>{inr(price)} ✎</Text>
+                        </TouchableOpacity>
                         {inCartQty > 0 ? (
                           <View style={styles.inCartBadge}>
                             <Text style={styles.inCartBadgeText}>{inCartQty} in cart</Text>
@@ -1175,6 +1186,14 @@ export const BillingScreen: React.FC = () => {
           clearCart();
         }}
       />
+
+      {/* 8. Quick Price Edit Modal */}
+      <EditPriceModal
+        visible={priceEditModalVisible}
+        product={priceEditProduct}
+        onClose={() => setPriceEditModalVisible(false)}
+        onSave={handleSavePriceEdit}
+      />
     </SafeAreaView>
   );
 };
@@ -1372,6 +1391,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: COLORS.text,
+  },
+  priceEditTouch: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: RADIUS.xs,
+    backgroundColor: '#F1F5F9',
   },
   inCartBadge: {
     backgroundColor: '#DBEAFE',
