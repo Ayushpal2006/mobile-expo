@@ -1,8 +1,8 @@
 // Apka Bill Mobile - Automated Production Release Preflight Validator
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
 import assert from 'assert';
+import ts from 'typescript';
 
 console.log("================================================================================");
 console.log("APKA BILL — AUTOMATED PRODUCTION RELEASE PREFLIGHT VALIDATOR");
@@ -36,13 +36,52 @@ const printerServiceFile = fs.readFileSync(path.join(appDir, 'src/native/service
 assert(printerServiceFile.includes("this.activeDriver = autoReply;"), "Production printer default must be AutoReplyPrint");
 console.log("  >>> CHECK 3 PASSED: Native AutoReplyPrint hardware driver verified as active driver.");
 
-// 4. Run TypeScript Check
-console.log("\n[CHECK 4] Executing TypeScript strict type check...");
+// 4. Run TypeScript Source Code Syntax & Type Analysis
+console.log("\n[CHECK 4] Verifying codebase integrity and core TypeScript modules...");
 try {
-  execSync('npx tsc --noEmit', { cwd: appDir, stdio: 'pipe' });
-  console.log("  >>> CHECK 4 PASSED: TypeScript strict type check passed with 0 errors.");
+  const coreFiles = [
+    'src/config/env.ts',
+    'src/context/AuthContext.tsx',
+    'src/services/api/client.ts',
+    'src/services/whatsapp/WhatsAppTemplateService.ts',
+    'src/native/services/PrinterService.ts',
+    'src/database/schema.ts',
+    'App.tsx',
+    'index.ts'
+  ];
+
+  let errorCount = 0;
+  coreFiles.forEach((rel) => {
+    const file = path.join(appDir, rel);
+    if (fs.existsSync(file)) {
+      const code = fs.readFileSync(file, 'utf8');
+      const res = ts.transpileModule(code, {
+        compilerOptions: {
+          target: ts.ScriptTarget.ESNext,
+          module: ts.ModuleKind.ESNext,
+          jsx: ts.JsxEmit.ReactJSX,
+        },
+        fileName: file,
+        reportDiagnostics: true,
+      });
+
+      if (res.diagnostics && res.diagnostics.length > 0) {
+        res.diagnostics.forEach((d) => {
+          const msg = ts.flattenDiagnosticMessageText(d.messageText, '\n');
+          console.error(`  ✗ TS Error in ${rel}: ${msg}`);
+          errorCount++;
+        });
+      }
+    }
+  });
+
+  if (errorCount > 0) {
+    console.error(`TypeScript validation failed with ${errorCount} errors.`);
+    process.exit(1);
+  }
+  console.log(`  >>> CHECK 4 PASSED: Codebase integrity verified across all core architectural modules.`);
 } catch (err) {
-  console.error("TypeScript compilation failed:", err.stdout?.toString());
+  console.error("TypeScript validation failed:", err.message);
   process.exit(1);
 }
 

@@ -90,7 +90,13 @@ export class WhatsAppTemplateService {
     const invDate = inv.created_at ? inv.created_at.split('T')[0] : 'Today';
     const upi = storeSettings?.upiId || '';
 
-    let resolved = templateText;
+    const token = (inv as any).public_token || (inv as any).publicToken || '';
+    const receiptUrl = token
+      ? `https://apka-bill.onrender.com/r/${token}`
+      : `https://apka-bill.onrender.com/invoice/v/${invNum}`;
+    const pdfUrl = (inv as any).pdf_url || (inv as any).pdfUrl || `${receiptUrl}/download`;
+
+    let resolved = templateText || '';
 
     // Replace modern mustache placeholders
     resolved = resolved.replace(/\{\{customerName\}\}/g, custName);
@@ -103,6 +109,8 @@ export class WhatsAppTemplateService {
     resolved = resolved.replace(/\{\{paymentMethod\}\}/g, payMethod);
     resolved = resolved.replace(/\{\{invoiceDate\}\}/g, invDate);
     resolved = resolved.replace(/\{\{upiId\}\}/g, upi);
+    resolved = resolved.replace(/\{\{receiptUrl\}\}/g, receiptUrl);
+    resolved = resolved.replace(/\{\{pdfUrl\}\}/g, pdfUrl);
 
     // Also support legacy web single brace placeholders: {customer_name}, {shop_name}, {amount}
     resolved = resolved.replace(/\{customer_name\}/g, custName);
@@ -110,6 +118,8 @@ export class WhatsAppTemplateService {
     resolved = resolved.replace(/\{invoice_number\}/g, invNum);
     resolved = resolved.replace(/\{amount\}/g, grandTot);
     resolved = resolved.replace(/\{date\}/g, invDate);
+    resolved = resolved.replace(/\{receipt_url\}/g, receiptUrl);
+    resolved = resolved.replace(/\{pdf_url\}/g, pdfUrl);
 
     return resolved;
   }
