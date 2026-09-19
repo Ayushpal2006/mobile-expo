@@ -17,7 +17,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://apka-bill.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://orion-pos-api.ayushpalworkplace2006.workers.dev"
       }
     },
     "diagnostic-apk": {
@@ -26,7 +26,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://apka-bill.onrender.com",
+        "EXPO_PUBLIC_API_URL": "https://orion-pos-api.ayushpalworkplace2006.workers.dev",
         "EXPO_PUBLIC_STARTUP_DIAGNOSTICS": "true"
       }
     },
@@ -36,7 +36,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://apka-bill.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://orion-pos-api.ayushpalworkplace2006.workers.dev"
       }
     },
     "production": {
@@ -44,7 +44,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://apka-bill.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://orion-pos-api.ayushpalworkplace2006.workers.dev"
       }
     }
   },

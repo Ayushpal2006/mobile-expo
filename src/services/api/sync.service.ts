@@ -12,6 +12,7 @@
  * 8. Granular diagnostic logging for full auditability
  */
 
+import { getApiBaseUrl } from '../../config/env';
 import { OutboxRepository } from '../../database/repositories/outbox.repository';
 import { SaleRepository } from '../../database/repositories/sale.repository';
 import { ProductRepository } from '../../database/repositories/product.repository';
@@ -1040,7 +1041,7 @@ export const SyncEngine = {
     return {
       organizationId: orgId || null,
       storeId,
-      apiBaseUrl: 'https://apka-bill.onrender.com',
+      apiBaseUrl: getApiBaseUrl(),
       backendReachable: Boolean(currentProgressState.backendConnected),
       lastSyncedAt: lastSync || null,
       pendingCount: stats.pending,

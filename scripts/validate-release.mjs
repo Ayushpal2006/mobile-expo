@@ -27,7 +27,7 @@ const envFile = fs.readFileSync(path.join(appDir, 'src/config/env.ts'), 'utf8');
 assert(!envFile.includes("localhost"), "Production env file must not contain localhost");
 assert(!envFile.includes("127.0.0.1"), "Production env file must not contain 127.0.0.1");
 assert(!envFile.includes("10.0.2.2"), "Production env file must not contain 10.0.2.2");
-assert(envFile.includes("https://apka-bill.onrender.com"), "Must point to https://apka-bill.onrender.com");
+assert(envFile.includes("https://orion-pos-api.ayushpalworkplace2006.workers.dev"), "Must point to https://orion-pos-api.ayushpalworkplace2006.workers.dev");
 console.log("  >>> CHECK 2 PASSED: Production HTTPS endpoint verified without development URLs.");
 
 // 3. Audit Printer Driver Default

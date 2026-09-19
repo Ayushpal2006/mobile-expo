@@ -17,7 +17,10 @@ export interface AppConfig {
   timeoutMs: number;
 }
 
-export const DEFAULT_PRODUCTION_API_URL = 'https://apka-bill.onrender.com';
+// The Cloudflare Worker backend. The previous default (https://apka-bill.onrender.com)
+// is a decommissioned Render deployment that now answers 503, so every build shipped
+// with it could not reach the API at all.
+export const DEFAULT_PRODUCTION_API_URL = 'https://orion-pos-api.ayushpalworkplace2006.workers.dev';
 
 const sanitizeUrl = (rawUrl?: string): string | null => {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
@@ -38,7 +41,7 @@ const isDisallowedProductionHost = (url: string): boolean => {
  * 
  * Order of precedence:
  * 1. `EXPO_PUBLIC_API_URL` environment variable (build-time or .env).
- * 2. `DEFAULT_PRODUCTION_API_URL` (https://apka-bill.onrender.com).
+ * 2. `DEFAULT_PRODUCTION_API_URL` (the Cloudflare Worker backend).
  * 
  * Safety invariants:
  * - In production builds (`!__DEV__`), development hostnames

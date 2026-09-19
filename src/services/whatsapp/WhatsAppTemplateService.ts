@@ -9,6 +9,7 @@
 
 import { Linking, Alert } from 'react-native';
 import { SaleInvoice, StoreSettings } from '../../types';
+import { getApiBaseUrl } from '../../config/env';
 
 export interface WhatsAppTemplateConfig {
   id: string;
@@ -91,9 +92,10 @@ export class WhatsAppTemplateService {
     const upi = storeSettings?.upiId || '';
 
     const token = (inv as any).public_token || (inv as any).publicToken || '';
-    const receiptUrl = token
-      ? `https://apka-bill.onrender.com/r/${token}`
-      : `https://apka-bill.onrender.com/invoice/v/${invNum}`;
+    // Derived from the configured backend rather than hardcoded: these links are sent to
+    // customers, and the previous hardcoded Render host is decommissioned (503).
+    const apiBase = getApiBaseUrl();
+    const receiptUrl = token ? `${apiBase}/r/${token}` : `${apiBase}/invoice/v/${invNum}`;
     const pdfUrl = (inv as any).pdf_url || (inv as any).pdfUrl || `${receiptUrl}/download`;
 
     let resolved = templateText || '';
